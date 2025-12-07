@@ -38,7 +38,7 @@ Kırpılmış Veri İhtimali (Truncation)
 
 Çözünürlük ve Dosya Boyutu Dengesi
 
-⚙️ Arayüz ve Kullanılabilirlik
+## ⚙️ Arayüz ve Kullanılabilirlik
 Uygulama, tüm ayarları tek bir akıcı pencerede sunar:
 
 Toplu İşlem: Tek bir dosyayı veya komple bir klasörü ve içindeki tüm resimleri onarma.
@@ -53,18 +53,12 @@ Log Yönetimi: Tüm işlem kayıtları ve hatalar anlık olarak log penceresinde
 Bu uygulamayı çalıştırmak için daha önce Python kurmuş olmanız gerekmez. Aşağıdaki adımları uygulayarak programı hemen kullanmaya başlayabilirsiniz.
 
 ## 1. 📦 Program Klasörünü Hazırlama
-Geliştiriciden aldığınız veya GitHub'dan indirdiğiniz ZIP dosyasını açın.
+İndirdiğiniz ZIP dosyasını bilgisayarınızda açın.
 
-Klasörü sabit bir yere (örneğin Masaüstüne veya C:\ImageRepairEngine altına) çıkarın.
+Klasörü sabit bir yere (örneğin Masaüstüne veya C:\Resim Onarım Aracı altına) çıkarın.
 
-Klasörün içinde şu dosyaların olduğundan emin olun (özellikle requirements.txt ve Kurulumu_Baslat.bat):
+Klasörün içinde şu dosyaların olduğundan emin olun (özellikle Gereksinimler.txt ve Kurulumu_Baslat.bat):
 
-C:\ImageRepairEngine\
-│
-├── Kurulumu_Baslat.bat  ← Sizin için her şeyi bu dosya halledecek!
-├── Başlat.cmd           ← Kurulum sonrası çalıştırma dosyası
-├── requirements.txt
-└── (gui.py, repair_engine.py vb. diğer tüm Python dosyaları)
 ## 2. 🛠 Tek Tıkla Kurulumu Başlatma
 Klasör içindeki Kurulumu_Baslat.bat dosyasına sağ tıklayın ve Yönetici olarak çalıştırın.
 
@@ -74,7 +68,7 @@ Kurulum betiği şunları yapacaktır:
 
 Python'u İndirip Kurar: Python'u indirir ve sistem PATH'ine ekler.
 
-Gerekli Paketleri Yükler: Programın çalışması için gereken tüm Python kütüphanelerini (requirements.txt içindeki) otomatik olarak yükler.
+Gerekli Paketleri Yükler: Programın çalışması için gereken tüm Python kütüphanelerini (Gereksinimler.txt içindeki) otomatik olarak yükler.
 
 Kurulum bittiğinde, komut penceresi kapanacaktır.
 
@@ -86,6 +80,8 @@ Başlat.cmd dosyasına çift tıklayın.
 Resim Onarım Aracı penceresi açılacaktır.
 
 ## 🛠 FFmpeg Kurulumu (İsteğe Bağlı ama Önerilir)
+Program açıldığında ffmpeg bulunamadı uyarısı göreceksiniz
+
 FFmpeg, yeniden encode yöntemlerini kullanmak için önemlidir. Kurulumu çok basittir:
 
 ffmpeg.org gibi güvenilir bir kaynaktan FFmpeg'in Windows sürümünü indirin.
@@ -94,11 +90,6 @@ ffmpeg.org gibi güvenilir bir kaynaktan FFmpeg'in Windows sürümünü indirin.
 
 Bu ffmpeg.exe dosyasını, tıpkı Başlat.cmd gibi, programın ana klasörüne kopyalayın:
 
-C:\ImageRepairEngine\
-│
-├── Başlat.cmd
-├── ffmpeg.exe  ← Buraya kopyalayın
-└── ...
 Programı tekrar çalıştırdığınızda, arayüzde "FFmpeg bulundu" şeklinde yeşil bir bilgi göreceksiniz.
 
 
