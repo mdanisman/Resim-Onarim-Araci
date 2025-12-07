@@ -1,4 +1,4 @@
-📸 ## Gelişmiş Resim Onarım Aracı
+## 📸 Gelişmiş Resim Onarım Aracı
 Bu araç, bozuk veya kısmen hasar görmüş JPEG ve PNG dosyalarını onarmak için geliştirilmiş, profesyonel seviyede algoritmalar kullanan bir masaüstü uygulamasıdır. Tek bir akıcı arayüzde birden fazla onarım tekniğini ve gelişmiş bir çıktı skorlama sistemini birleştirir.
 
 ✨ ## Temel Özellikler
