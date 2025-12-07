@@ -1,4 +1,5 @@
 🇹🇷 Türkçe Bilgilendirme
+
 Özet:
 Bozuk, açılmayan veya kısmen hasarlı JPEG/PNG görselleri; marker düzeltme, Smart Header, EXIF thumbnail, PNG CRC tamiri, FFmpeg yeniden encode ve akıllı skorlamayla onarır. Tek resim veya klasör üzerinden toplu işlem, önizleme ve ayrıntılı log imkanı sunar.
 
