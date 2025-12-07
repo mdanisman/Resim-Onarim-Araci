@@ -1,3 +1,127 @@
+Türkçe Versiyon
+
+Resim Onarım Aracı (Image Repair Engine Pro)
+Telif Hakkı (C) 2025  Muharrem DANIŞMAN
+İletişim: mdanisman3@gmail.com
+
+Bu yazılım GNU Genel Kamu Lisansı sürüm 3 (GPL-3.0) ile lisanslanmıştır.
+Aşağıdaki metin GPLv3 lisansının Türkçe çevirisidir.
+Bu çeviri bilgilendirme amaçlıdır; hukuki geçerliliği olan metin İngilizce olandır.
+--------------------------------------------------------------------------
+
+                GNU GENEL KAMU LİSANSI
+                    Sürüm 3, 29 Haziran 2007
+
+  Telif Hakkı (C) 2007 Free Software Foundation, Inc.
+  Bu lisans belgesinin birebir kopyalarını dağıtmak serbesttir;
+  fakat üzerinde değişiklik yapılması yasaktır.
+
+                          Önsöz
+
+GNU Genel Kamu Lisansı, özgür yazılımlar ve diğer çalışmalar için
+bir telif hakkı lisansıdır. Bu lisans, kullanıcıların yazılımı
+çalıştırma, inceleme, değiştirme ve dağıtma özgürlüğünü güvence altına
+almak için tasarlanmıştır.
+
+Özgür yazılımların temel amacı, kullanıcıların özgürlüğünü korumaktır.
+GPL, kullanıcıların programı paylaşmasını ve değiştirmesini yasaklayan
+kısıtlamaları ortadan kaldırır. Bu lisansı kullanan bir programı
+değiştiren herkes, bu değişiklikleri aynı lisansla paylaşmak zorundadır.
+
+GPL’in üç temel amacı vardır:
+  (1) Yazılımı özgür bırakmak,
+  (2) Yazılıma yapılan değişikliklerin özgür kalmasını sağlamak,
+  (3) Kullanıcıların özgürlüklerini korumak.
+
+Aşağıdaki hükümler, GPL sürüm 3'ün tam şartlarını içerir.
+
+1. Tanımlar
+--------------
+"Bu Lisans", GNU Genel Kamu Lisansı'nın 3. sürümünü ifade eder.
+
+"Program", bu lisans kapsamında lisanslanan herhangi bir yazılım
+veya çalışmayı ifade eder.
+
+"Kaynak kodu", yazılımın değişiklik yapılabilir en uygun formudur.
+
+"Nesne kodu", kaynak kodu dışında kalan her türlü kod biçimidir.
+
+"Değiştirmek", programın bir kısmını veya tamamını, izin gerektiren
+şekilde türev bir eser oluşturacak biçimde değiştirmektir.
+
+"İletmek", yazılımı herhangi bir şekilde üçüncü kişilere ulaştırmak
+veya onlara erişim sağlamaktır.
+
+2. Temel İzinler
+---------------------
+Bu lisans size:
+  - Programı çalıştırma,
+  - Kopyalama ve dağıtma,
+  - İnceleme ve değiştirme,
+  - Türev eserler oluşturma
+haklarını verir.
+
+Bu hakları devrederken, aynı lisansı korumanız gerekir.
+
+3. Kaynağı Erişilebilir Kılma
+--------------------------------
+Programı iletirken, kaynak kodunu da sağlamalı
+veya kaynağı edinebilme yolunu açıkça belirtmelisiniz.
+
+4. Değiştirilmiş Sürümler
+------------------------------
+Programda değişiklik yaparsanız:
+  - Değiştirildiğini belirtmelisiniz,
+  - Tüm değişiklikleri GPLv3 ile lisanslamalısınız,
+  - Kaynak kodunu sağlamalısınız.
+
+5. Kombine Çalışmalar
+-------------------------
+Programı başka çalışmalarla birleştirirseniz,
+birleşik çalışmanın tümü GPL kapsamında olmalıdır.
+
+6. Ek Şartlar
+------------------
+Bazı durumlarda, telif hakkı sahipleri ek şartlar koyabilirler;
+ancak bu şartlar, GPL’in temel özgürlüklerini kısıtlayamaz.
+
+7. İptal
+-------------
+Bu lisans hükümlerini ihlal ederseniz, lisansınız otomatik olarak sona erer.
+
+8. Patentler
+-----------------
+Bu lisans, katkı sağlayanların patent lisanslarını da içerir.
+Patent kullanımı ile kullanıcı özgürlüklerini sınırlayamazsınız.
+
+9. Ek Kısıtlama Yasakları
+--------------------------------
+Bu lisans kapsamında, yazılım üzerine ekstra kısıtlama ekleyemezsiniz.
+
+10. Zorunlu Kabul Yoktur
+-----------------------------
+Programı çalıştırmak için lisansı kabul etmek zorunda değilsiniz.
+Ancak programı iletirseniz, lisansı kabul etmiş sayılırsınız.
+
+11. Sorumluluk Reddi
+----------------------------
+Program “OLDUĞU GİBİ” sağlanır; hiçbir garanti verilmez.
+Programdan kaynaklanan hiçbir zarardan yazarlar sorumlu tutulamaz.
+
+12. Son Hükümler
+-----------------------
+Bu lisans, kullanıcı özgürlüğünü korumak için tasarlanmıştır.
+Diğer lisanslarla çakışma durumunda GPL yorumlanırken özgürlükler esas alınır.
+
+-----------------------------------------------------------------------
+
+BU ŞARTLAR VE KOŞULLARIN SONU
+
+
+
+
+English Version
+
 Resim Onarım Aracı (Image Repair Engine Pro)
 Copyright (C) 2025  Muharrem DANIŞMAN
 Contact: mdanisman3@gmail.com
