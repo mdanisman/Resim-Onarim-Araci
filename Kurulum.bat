@@ -189,7 +189,7 @@ echo.
     echo REM Gelistirici : Muharrem DANIŞMAN ^(mdanisman3@gmail.com^)
     echo REM ^(C^) 2025 - Tum haklari saklidir.
     echo cd /d "%%~dp0"
-    echo title Resim Onarim Araci
+    echo title Resim Onarim Araci - Gelistirici : Muharrem DANIŞMAN ^(mdanisman3@gmail.com^)
     echo "%PYTHON_EXE%" "gui.py"
     echo echo.
     echo echo Programi kapatmak icin bir tusa basin...
