@@ -48,5 +48,6 @@ piexif>=1.1.3,<2.0.0
 #    ayrıca kurulmaları gerekmez.
 #
 # 3) Kurulum.cmd betiği bu dosyayı kullanarak:
-#      python -m pip install -r requirements.txt
+#      python -m pip install -r gereksinimler.txt
+
 #    komutunu çalıştırır ve bu bağımlılıkları otomatik yükler.
