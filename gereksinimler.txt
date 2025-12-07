@@ -1,0 +1,52 @@
+# ============================================================
+# Resim Onarım Aracı Pro - Python Gereksinimleri
+# Geliştirici: Muharrem DANIŞMAN (mdanisman3@gmail.com)
+# ============================================================
+
+# --- ZORUNLU BAĞIMLILIKLAR ---
+# GUI (tkinter) Python ile birlikte gelir, pip ile kurulmaz.
+
+# Pillow:
+# - Tüm resim açma/kaydetme işlemleri
+# - Format dönüştürme, thumbnail oluşturma
+# - JPEG / PNG yükleyip yeniden yazma
+Pillow>=10.0.0,<11.0.0
+
+# piexif:
+# - EXIF içindeki thumbnail'i okuyup kurtarmak için
+# - EXIF verilerini alıp yazmak için kullanılıyor
+piexif>=1.1.3,<2.0.0
+
+
+# --- OPSİYONEL / GELİŞMİŞ BAĞIMLILIKLAR ---
+# Şu an kod, bu paketlere doğrudan ihtiyaç duymuyor.
+# İleride performans arttırmak veya ekstra filtreler eklemek istersen
+# aşağıdakileri aktif edip kullanabilirsin.
+
+# numpy:
+# - Büyük matris hesaplamaları, histogram ve piksel bazlı analizleri
+#   hızlandırmak için ideal. repair_engine tarafına advanced skor algoritmaları
+#   eklerken kullanışlı olabilir.
+# numpy>=1.26.0,<2.0.0
+
+# imagecodecs:
+# - Profesyonel düzeyde codec desteği (TIFF, JPEG2000, vb.) eklemek için.
+# - Şu anda zorunlu değil, sadece ileri seviye destek için öneri.
+# imagecodecs
+
+# opencv-python:
+# - İleri görüntü işleme (bulanıklık ölçümü, kenar tespiti, gürültü analizi)
+#   eklemek istersen kullanabilirsin.
+# opencv-python
+
+# --- NOTLAR ---
+# 1) FFmpeg bir Python paketi değildir, buraya yazılmaz.
+#    ffmpeg.exe dosyasını program klasörüne koymanız yeterlidir.
+#
+# 2) tkinter, dataclasses, pathlib, threading, subprocess, tempfile vb.
+#    modüller Python'un standart kütüphanesinin parçasıdır; pip ile
+#    ayrıca kurulmaları gerekmez.
+#
+# 3) Kurulum.cmd betiği bu dosyayı kullanarak:
+#      python -m pip install -r requirements.txt
+#    komutunu çalıştırır ve bu bağımlılıkları otomatik yükler.
