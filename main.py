@@ -7,6 +7,7 @@ from typing import Dict, Iterable, List, Optional
 
 from core.jpeg_repair import build_header_library_from_folder
 from core.repair_engine import pick_best_output, repair_image_all_methods
+from core.ai_patch import apply_ai_reconstruction_to_outputs
 from gui import run_app
 from utils import DEST_SUBFOLDER_NAME, detect_ffmpeg, is_image_file
 
@@ -163,8 +164,23 @@ def run_cli(args: argparse.Namespace) -> int:
     }
     q_list = q_map.get(args.ffmpeg_quality.lower(), [4, 5])
 
+    # AI seçenekleri
+    ai_enabled = bool(args.ai_patch)
+    ai_use_realesrgan = not args.ai_no_realesrgan
+    ai_use_gfpgan = not args.ai_no_gfpgan
+    ai_use_inpaint = not args.ai_no_inpaint
+    ai_damage_threshold = float(args.ai_damage_threshold)
+
     _cli_log(f"Toplam {len(files)} dosya işlenecek.")
     _cli_log(f"Çıktı kök klasörü: {base_output}")
+    if ai_enabled:
+        _cli_log(
+            f"AI JPEG Patch Reconstruction: AKTİF (Real-ESRGAN={ai_use_realesrgan}, "
+            f"GFPGAN={ai_use_gfpgan}, Inpaint={ai_use_inpaint}, "
+            f"threshold={ai_damage_threshold})",
+        )
+    else:
+        _cli_log("AI JPEG Patch Reconstruction: PASİF")
 
     success_count = 0
 
@@ -200,12 +216,24 @@ def run_cli(args: argparse.Namespace) -> int:
             use_png_crc=method_flags["png_crc"],
             exif_thumb_upscale=args.exif_thumb_upscale,
             png_crc_skip_ancillary=args.png_crc_skip_ancillary,
-            # NOT: strategy_mode parametresi core.repair_engine.repair_image_all_methods
-            # imzanızda yoksa bu satırı kaldırmanız gerekir.
             strategy_mode=args.strategy_mode.upper(),
         )
 
-        best = pick_best_output(outputs) if outputs else None
+        # AI JPEG Patch Reconstruction
+        if ai_enabled and outputs:
+            outputs = apply_ai_reconstruction_to_outputs(
+                input_path=file_path,
+                outputs=outputs,
+                output_dir=out_dir,
+                use_realesrgan=ai_use_realesrgan,
+                use_gfpgan=ai_use_gfpgan,
+                use_inpaint=ai_use_inpaint,
+                damage_threshold=ai_damage_threshold,
+                strategy_mode=args.strategy_mode.upper(),
+                log=_cli_log,
+            )
+
+        best = pick_best_output(outputs, strategy_mode=args.strategy_mode.upper()) if outputs else None
         if best:
             success_count += 1
             _cli_log(f"[OK] En iyi çıktı: {best}", color="green")
@@ -289,6 +317,35 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["SAFE", "NORMAL", "AGGRESSIVE"],
         help="Onarım strateji modu (core.repair_engine ile uyumlu olmalı).",
     )
+
+    # ---------- AI JPEG PATCH RECONSTRUCTION SEÇENEKLERİ ----------
+    parser.add_argument(
+        "--ai-patch",
+        action="store_true",
+        help="Klasik onarım çıktısı üzerine AI JPEG Patch Reconstruction uygula.",
+    )
+    parser.add_argument(
+        "--ai-no-realesrgan",
+        action="store_true",
+        help="AI patch sırasında Real-ESRGAN adımını devre dışı bırak.",
+    )
+    parser.add_argument(
+        "--ai-no-gfpgan",
+        action="store_true",
+        help="AI patch sırasında GFPGAN yüz onarımını devre dışı bırak.",
+    )
+    parser.add_argument(
+        "--ai-no-inpaint",
+        action="store_true",
+        help="AI patch sırasında Stable Diffusion inpainting adımını devre dışı bırak.",
+    )
+    parser.add_argument(
+        "--ai-damage-threshold",
+        type=float,
+        default=0.7,
+        help="Hasar ısı haritası için eşik (0.0-1.0). Varsayılan: 0.7",
+    )
+
     parser.add_argument(
         "--gui",
         action="store_true",

@@ -1,228 +1,202 @@
 @echo off
 SETLOCAL ENABLEDELAYEDEXPANSION
 
-:: --- Yapılandırma ---
-SET PYTHON_VERSION=3.12.3
-SET PYTHON_INSTALLER_URL=https://www.python.org/ftp/python/%PYTHON_VERSION%/python-%PYTHON_VERSION%-amd64.exe
-SET INSTALLER_NAME=python_installer.exe
-SET REQUIREMENTS_FILE=gereksinimler.txt
+:: ============================================================================
+:: AYARLAR
+:: ============================================================================
+set PY_VERSION=3.10.11
+set PY_INSTALLER_URL=https://www.python.org/ftp/python/%PY_VERSION%/python-%PY_VERSION%-amd64.exe
+set PY_INSTALLER=python310_setup.exe
+set REQUIREMENTS_FILE=gereksinimler.txt
 
-TITLE Resim Onarim Araci - Kurulum Sihirbazi
+set MODEL_DIR=models
+set GFPGAN_DRIVE=https://drive.google.com/uc?export^=download^&id=1plO391KI_tFMAudOlHhQooR_LGjPF_jW
+set ESRGAN_DRIVE=https://drive.google.com/uc?export^=download^&id=1o0gpcvfVbnD2gdM5qkVcd04YO-Nlkm6e
+set ESRNET_DRIVE=https://drive.google.com/uc?export^=download^&id=15njh9lkvdBgBuHx24LrsTDT7YyFKUtGm
 
-:: ------------------------------------------------------------------
-:: GİRİŞ EKRANI (SETUP STİLİ)
-:: ------------------------------------------------------------------
+mode con: cols=78 lines=32
+color 1F
+title Resim Onarim Araci - Kurulum Sihirbazi ^| Muharrem DANISMAN
+
 cls
 echo.
-echo  ==================================================================
-echo   RESIM ONARIM ARACI - KURULUM SIHIRBAZI
-echo  ==================================================================
+echo  ===========================================================================
+echo                         RESIM ONARIM ARACI - KURULUM SIHIRBAZI
+echo  ===========================================================================
+echo   Bu sihirbaz aracin calismasi icin gerekli tum bagimliliklari yukler.
 echo.
-echo   Gelistirici :  Muharrem DANISMAN
-echo   Iletisim    :  mdanisman3@gmail.com
-echo   Telif Hakki :  ^(C^) 2025  Muharrem DANISMAN - Tum haklari saklidir.
+echo   - Python 3.10 kontrolu / kurulumu (AI MODEL UYUMU ICIN ZORUNLU)
+echo   - Temel kutuphaneler: Pillow, numpy, piexif, opencv-python (gereksinimler.txt)
+echo   - AI kutuphaneleri: torch, torchvision, basicsr, facexlib, gfpgan, realesrgan
+echo   - Stable Diffusion: diffusers, transformers
 echo.
-echo  Bu sihirbaz, Resim Onarim Araci'nin calisabilmesi icin gereken:
-echo    - Python 3 (Kurulu degilse)
-echo    - Gerekli Python kutuphaneleri (Pillow, vb.)
-echo    - Baslat.cmd dosyasinin olusturulmasi
-echo  adimlarini gerceklestirecek.
-echo.
-echo  Devam etmek icin bir tusa basin...
-echo  (Kurulumu iptal etmek icin pencereyi kapatabilirsiniz.)
-echo  ------------------------------------------------------------------
-pause >nul
-
-:: ------------------------------------------------------------------
-:: 1) Python var mi? (Adim 1/3)
-:: ------------------------------------------------------------------
-cls
-echo.
-echo  ==================================================================
-echo   ADIM 1/3 - PYTHON DENETIMI
-echo  ==================================================================
-echo.
-echo  Sisteminizde Python komutunun varligi kontrol ediliyor...
-echo.
-
-set "PYTHON_EXE="
-
-for /f "delims=" %%I in ('where python 2^>nul') do (
-    set "PYTHON_EXE=%%I"
-    goto :FOUND_PY
-)
-
-:NOT_FOUND_PY
-echo  Python bulunamadi. Bu programin calismasi icin Python gerekli.
-echo.
-echo  Python %PYTHON_VERSION% surumu indirilecek ve sessizce kurulacak.
-echo.
-echo  Devam etmek icin bir tusa basin...
-pause >nul
-
-echo.
-echo  Internet baglantisi kontrol ediliyor...
-ping www.python.org -n 1 -w 1000 >nul
-if %errorlevel% neq 0 (
-    echo.
-    echo  HATA: Internet baglantisi kurulamadi.
-    echo  Lutfen baglantiyi kontrol edip tekrar deneyin.
-    echo.
-    pause
-    EXIT /B 1
-)
-
-echo.
-echo  Python yukleyicisi indiriliyor...
-echo  Kaynak: %PYTHON_INSTALLER_URL%
-echo.
-
-bitsadmin /transfer "DownloadPython" /priority HIGH %PYTHON_INSTALLER_URL% "%TEMP%\%INSTALLER_NAME%"
-if %errorlevel% neq 0 (
-    echo.
-    echo  HATA: Python yukleyicisi indirilemedi.
-    echo  URL'yi veya baglantiyi kontrol edin.
-    echo.
-    pause
-    EXIT /B 1
-)
-
-echo.
-echo  Python kurulumu baslatiliyor. Bu islem birkac dakika surebilir...
-start /wait "%TEMP%\%INSTALLER_NAME%" /quiet InstallAllUsers=1 PrependPath=1
-if %errorlevel% neq 0 (
-    echo.
-    echo  HATA: Python kurulumu basarisiz oldu veya iptal edildi.
-    echo.
-    pause
-    EXIT /B 1
-)
-
-echo.
-echo  Python kuruldu. PATH guncellenmesi icin kisa bir sure bekleniyor...
-timeout /t 5 >nul
-
-for /f "delims=" %%I in ('where python 2^>nul') do (
-    set "PYTHON_EXE=%%I"
-    goto :FOUND_PY
-)
-
-echo.
-echo  HATA: Python kuruldu ancak 'python' komutu hala bulunamiyor.
-echo  Lutfen sistemi yeniden baslattiktan sonra bu kurulumu tekrar calistirin.
+echo   Python zaten varsa tekrar kurulmaz.
+echo  ===========================================================================
 echo.
 pause
-EXIT /B 1
 
-:FOUND_PY
-echo  Python bulundu: "!PYTHON_EXE!"
-echo.
-echo  Adim 1/3 basariyla tamamlandi.
-echo.
-echo  Devam etmek icin bir tusa basin...
-pause >nul
-
-:: ------------------------------------------------------------------
-:: 2) Gerekli kutuphaneleri yukle (Adim 2/3)
-:: ------------------------------------------------------------------
+:: ============================================================================
+:: ADIM 1 - PYTHON 3.10 KONTROLU
+:: ============================================================================
 cls
 echo.
-echo  ==================================================================
-echo   ADIM 2/3 - PYTHON KUTUPHANELERININ KURULUMU
-echo  ==================================================================
-echo.
-echo  Bu adimda, programin calmasi icin gereken Python paketleri
-echo  (Pillow ve digerleri) yuklenecektir.
-echo.
+echo  ===========================================================================
+echo                      ADIM 1 / 4 - PYTHON KONTROLU
+echo  ===========================================================================
 
-if not exist "%~dp0%REQUIREMENTS_FILE%" (
-    echo  HATA: "%REQUIREMENTS_FILE%" dosyasi bu klasorde bulunamadi:
-    echo    %~dp0
-    echo  Lutfen gereksinimler.txt dosyasinin dogru yerde oldugundan emin olun.
-    echo.
+set PY310_EXE=
+
+if exist "C:\Program Files\Python310\python.exe" set PY310_EXE=C:\Program Files\Python310\python.exe
+if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" set PY310_EXE=%LOCALAPPDATA%\Programs\Python\Python310\python.exe
+
+if defined PY310_EXE (
+    echo  Python 3.10 bulundu: %PY310_EXE%
     pause
-    EXIT /B 1
+    goto STEP2
 )
 
+echo  Python 3.10 bulunamadi → indiriliyor...
+powershell -Command "Invoke-WebRequest '%PY_INSTALLER_URL%' -OutFile '%PY_INSTALLER%'" 2>nul
+
+if %errorlevel% neq 0 (
+    echo HATA: Python indirilemedi!
+    pause
+    exit /b 1
+)
+
+echo  Python kuruluyor...
+%PY_INSTALLER% /quiet InstallAllUsers=1 PrependPath=1 Include_test=0
+
+if exist "C:\Program Files\Python310\python.exe" set PY310_EXE=C:\Program Files\Python310\python.exe
+if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" set PY310_EXE=%LOCALAPPDATA%\Programs\Python\Python310\python.exe
+
+if not defined PY310_EXE (
+    echo HATA: Python kuruldu fakat bulunamadi!
+    pause
+    exit /b 1
+)
+
+echo  Python 3.10 kuruldu.
+pause
+
+
+
+:: ============================================================================
+:: ADIM 2 - BAGIMLILIK YUKLEME
+:: ============================================================================
+:STEP2
+cls
+echo.
+echo  ===========================================================================
+echo                ADIM 2 / 4 - BAGIMLILIKLAR YUKLENIYOR
+echo  ===========================================================================
+echo   Yuklenecek kutuphaneler:
+echo   Pillow, numpy, piexif, opencv-python
+echo   torch + torchvision (CPU)
+echo   basicsr, facexlib, gfpgan, realesrgan
+echo   diffusers, transformers
+echo  ===========================================================================
+
+echo.
 echo  pip guncelleniyor...
-"%PYTHON_EXE%" -m pip install --upgrade pip
-if %errorlevel% neq 0 (
-    echo  UYARI: pip guncellenemedi. Yine de devam edilmeye calisiliyor...
-)
+"%PY310_EXE%" -m pip install --upgrade pip
 
 echo.
-echo  Gerekli paketler yukleniyor. Bu islem internet hizina bagli olarak
-echo  birkac dakika surebilir...
-echo.
-"%PYTHON_EXE%" -m pip install -r "%~dp0%REQUIREMENTS_FILE%"
+echo  Torch (CPU) yukleniyor...
+"%PY310_EXE%" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --no-warn-script-location
 if %errorlevel% neq 0 (
-    echo.
-    echo  HATA: Paket kurulumu tamamlanamadi.
-    echo  Lutfen yukaridaki hata mesajlarini kontrol edin.
-    echo.
+    echo HATA: Torch yuklenemedi!
     pause
-    EXIT /B 1
+    exit /b 1
 )
 
 echo.
-echo  Adim 2/3 basariyla tamamlandi.
-echo.
-echo  Devam etmek icin bir tusa basin...
-pause >nul
+echo  Diger gereksinimler yukleniyor...
+"%PY310_EXE%" -m pip install -r "%REQUIREMENTS_FILE%" --no-warn-script-location
 
-:: ------------------------------------------------------------------
-:: 3) Baslat.cmd olustur (Adim 3/3)
-:: ------------------------------------------------------------------
+if %errorlevel% neq 0 (
+    echo HATA: gereksinimler.txt yuklenirken hata olustu!
+    pause
+    exit /b 1
+)
+
+echo.
+echo  => Tum bagimliliklar yuklendi.
+pause
+goto STEP3
+
+
+
+:: ============================================================================
+:: ADIM 3 - GOOGLE DRIVE MODEL DOSYASI INDIRME
+:: ============================================================================
+:STEP3
 cls
 echo.
-echo  ==================================================================
-echo   ADIM 3/3 - BASLAT.CMD OLUSTURMA
-echo  ==================================================================
+echo  ===========================================================================
+echo                 ADIM 3 / 4 - MODEL DOSYALARI INDIRILIYOR
+echo  ===========================================================================
+
+if not exist "%MODEL_DIR%" mkdir "%MODEL_DIR%"
+
+:: ---- Google Drive Doğrudan İndirme Linkleri ----
+set GFPGAN_DRIVE=https://drive.google.com/uc?export^=download^&id=1plO391KI_tFMAudOlHhQooR_LGjPF_jW
+set ESRGAN_DRIVE=https://drive.google.com/uc?export^=download^&id=1o0gpcvfVbnD2gdM5qkVcd04YO-Nlkm6e
+set ESRNET_DRIVE=https://drive.google.com/uc?export^=download^&id=15njh9lkvdBgBuHx24LrsTDT7YyFKUtGm
+
 echo.
-echo  Bu adimda, programi kolayca baslatmaniz icin 'Baslat.cmd'
-echo  dosyasi olusturulacaktir.
+echo  GFPGAN indiriliyor...
+powershell -Command "Invoke-WebRequest '%GFPGAN_DRIVE%' -OutFile '%MODEL_DIR%\GFPGANv1.3.pth'" 2>nul
+if %errorlevel% neq 0 (
+    echo  HATA: GFPGAN indirilemedi!
+    pause
+    exit /b 1
+)
+
+echo  RealESRGAN_x4plus indiriliyor...
+powershell -Command "Invoke-WebRequest '%ESRGAN_DRIVE%' -OutFile '%MODEL_DIR%\RealESRGAN_x4plus.pth'" 2>nul
+if %errorlevel% neq 0 (
+    echo  HATA: RealESRGAN indirilemedi!
+    pause
+    exit /b 1
+)
+
+echo  RealESRNet_x4plus indiriliyor...
+powershell -Command "Invoke-WebRequest '%ESRNET_DRIVE%' -OutFile '%MODEL_DIR%\RealESRNet_x4plus.pth'" 2>nul
+if %errorlevel% neq 0 (
+    echo  HATA: RealESRNet indirilemedi!
+    pause
+    exit /b 1
+)
+
 echo.
+echo  => Tum modeller Drive'dan basariyla indirildi.
+pause
+goto STEP4
+
+
+:: ============================================================================
+:: ADIM 4 - BASLAT.CMD OLUSTURMA
+:: ============================================================================
+:STEP4
+cls
+echo.
+echo  Baslat.cmd olusturuluyor...
 
 (
-    echo @echo off
-    echo REM Resim Onarim Araci - Baslatma Dosyasi
-    echo REM Gelistirici : Muharrem DANIŞMAN ^(mdanisman3@gmail.com^)
-    echo REM ^(C^) 2025 - Tum haklari saklidir.
-    echo cd /d "%%~dp0"
-    echo title Resim Onarim Araci - Gelistirici : Muharrem DANIŞMAN ^(mdanisman3@gmail.com^)
-    echo "%PYTHON_EXE%" "gui.py"
-    echo echo.
-    echo echo Programi kapatmak icin bir tusa basin...
-    echo pause ^>nul
-) > "%~dp0Baslat.cmd"
-
-if %errorlevel% neq 0 (
-    echo.
-    echo  HATA: Baslat.cmd dosyasi olusturulamadi.
-    echo.
-    pause
-    EXIT /B 1
-)
+echo @echo off
+echo cd /d "%%~dp0"
+echo "%PY310_EXE%" "main.py"
+echo pause
+) > Baslat.cmd
 
 echo.
-echo  Adim 3/3 basariyla tamamlandi.
-echo.
-echo  ==================================================================
-echo                 KURULUM BASARIYLA TAMAMLANDI!
-echo  ==================================================================
-echo.
-echo   Artik programi baslatmak icin:
-echo      -> Bu klasorde 'Baslat.cmd' dosyasina cift tiklayabilirsiniz.
-echo.
-echo   FFmpeg destegi icin:
-echo      -> ffmpeg.exe dosyasini da ayni klasore kopyalayin.
-echo         (Varligi otomatik olarak algilanacaktir.)
-echo.
-echo   Gelistirici : Muharrem DANISMAN
-echo   Iletisim    : mdanisman3@gmail.com
-echo   Telif Hakki : ^(C^) 2025 - Tum haklari saklidir.
+echo  ===========================================================================
+echo                   KURULUM BASARIYLA TAMAMLANDI!
+echo  ===========================================================================
+echo  Programi calistirmak icin: Baslat.cmd
 echo.
 pause
 
 ENDLOCAL
-EXIT /B 0
+exit /b 0

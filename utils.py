@@ -38,7 +38,7 @@ IMAGE_EXTENSIONS = {
     ".tiff",
     ".webp",
     ".gif",
-    # ".heic",  # Pillow kurulumu uygunsa ve açılabiliyorsa aktif edilebilir.
+    # ".heic",  # Pillow kurulumu uygunsa açılabiliyorsa aktif edilebilir.
 }
 
 
@@ -77,7 +77,7 @@ def is_image_file(path: PathLike, check_content: bool = False) -> bool:
     # Önce uzantıdan hızlı bir tahmin
     ext = p.suffix.lower()
     if ext in IMAGE_EXTENSIONS:
-        # İçerik kontrolü istenmiyorsa direkt kabul et
+        # İçerik kontrolü istenmiyorsa direkt kabul
         if not check_content:
             return True
 
@@ -85,7 +85,7 @@ def is_image_file(path: PathLike, check_content: bool = False) -> bool:
         # Uzantı uyumlu olmasa bile, içerikten resim olup olmadığını test et
         try:
             with Image.open(p) as im:
-                im.verify()
+                im.verify()  # Yalnızca bütünlük kontrolü, decode etmez
             return True
         except Exception:
             return False
@@ -133,6 +133,7 @@ def detect_ffmpeg() -> Optional[str]:
     # 1) PATH üzerinde ara
     in_path = shutil.which("ffmpeg")
     if in_path:
+        # Tam yolu döndürmek, daha belirgin log'lar ve hatalar için faydalı
         return in_path
 
     # 2) Script / exe klasöründe ara
@@ -163,4 +164,3 @@ def detect_ffmpeg() -> Optional[str]:
 
     # 3) Hiçbir yerde bulunamadı
     return None
-
