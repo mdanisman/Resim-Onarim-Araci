@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import mmap
 import tempfile
 from pathlib import Path
 from typing import Callable, List, Dict, Any, Optional, Tuple
@@ -165,49 +166,70 @@ def extract_all_jpegs_from_blob(
     output_dir: Path,
     log: Callable[..., None],
     min_size: int = 1024,
+    *,
+    chunk_size: int = 4 * 1024 * 1024,
+    max_bytes: int = 200 * 1024 * 1024,
 ) -> List[Path]:
     out_files: List[Path] = []
     try:
+        file_size = input_path.stat().st_size
+        if file_size > max_bytes:
+            log(
+                f"[EMBED] {input_path.name} boyutu {file_size / (1024*1024):.1f}MB, limit {max_bytes / (1024*1024):.0f}MB. Tarama atlandı.",
+                color="orange",
+            )
+            return out_files
+
         with open(input_path, "rb") as f:
-            data = f.read()
+            buffer = b""
+            count = 0
 
-        idx = 0
-        n = len(data)
-        count = 0
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                buffer += chunk
 
-        while idx < n:
-            soi = data.find(b"\xff\xd8", idx)
-            if soi == -1:
-                break
-            eoi = data.find(b"\xff\xd9", soi + 2)
-            if eoi == -1:
-                idx = soi + 2
-                continue
+                while True:
+                    soi = buffer.find(b"\xff\xd8")
+                    if soi == -1:
+                        # Yersiz bellek büyümesini engellemek için kuyruk verisini sınırla
+                        if len(buffer) > chunk_size * 2:
+                            buffer = buffer[-chunk_size:]
+                        break
 
-            blob = data[soi:eoi + 2]
-            if len(blob) >= min_size:
-                count += 1
-                name = f"{input_path.stem}_embedded_{count}.jpg"
-                out_path = output_dir / name
-                with open(out_path, "wb") as wf:
-                    wf.write(blob)
-                out_files.append(out_path)
-                try:
-                    with Image.open(out_path) as im:
-                        im.verify()
-                    log(f"[EMBED] OK -> {name}", color="green")
-                except Exception as e:
-                    log(f"[EMBED] UYARI verify -> {name}: {e}", color="orange")
-            idx = eoi + 2
+                    eoi = buffer.find(b"\xff\xd9", soi + 2)
+                    if eoi == -1:
+                        buffer = buffer[soi:]
+                        break
+
+                    blob = buffer[soi:eoi + 2]
+                    buffer = buffer[eoi + 2:]
+
+                    if len(blob) >= min_size:
+                        count += 1
+                        name = f"{input_path.stem}_embedded_{count}.jpg"
+                        out_path = output_dir / name
+                        with open(out_path, "wb") as wf:
+                            wf.write(blob)
+                        out_files.append(out_path)
+                        try:
+                            with Image.open(out_path) as im:
+                                im.verify()
+                            log(f"[EMBED] OK -> {name}", color="green")
+                        except Exception as e:
+                            log(f"[EMBED] UYARI verify -> {name}: {e}", color="orange")
 
         if out_files:
-            log(f"[EMBED] {input_path.name} içinde {len(out_files)} gömülü JPEG çıkarıldı.", color="darkgreen")
+            log(
+                f"[EMBED] {input_path.name} içinde {len(out_files)} gömülü JPEG çıkarıldı.",
+                color="darkgreen",
+            )
         else:
             log(f"[EMBED] {input_path.name} içinde gömülü JPEG bulunamadı.", color="orange")
     except Exception as e:
         log(f"[EMBED] HATA {input_path.name} -> {e}", color="red")
     return out_files
-
 
 # -------------------------------------------------------
 # Partial Top Recovery
@@ -220,44 +242,53 @@ def partial_top_recovery(
     step_ratio: float = 0.07,
     min_keep_ratio: float = 0.35,
     max_variants: int = 4,
+    *,
+    max_bytes: int = 200 * 1024 * 1024,
 ) -> List[Path]:
     results: List[Path] = []
     try:
-        with open(input_path, "rb") as f:
-            data = f.read()
-        total = len(data)
-        min_keep = int(total * min_keep_ratio)
-        step = max(int(total * step_ratio), 1024)
+        file_size = input_path.stat().st_size
+        if file_size > max_bytes:
+            log(
+                f"[PARTIAL] {input_path.name} boyutu {file_size / (1024*1024):.1f}MB, limit {max_bytes / (1024*1024):.0f}MB. İşlem atlandı.",
+                color="orange",
+            )
+            return results
 
-        keep_len = total
-        variant_index = 0
+        with open(input_path, "rb") as f, mmap.mmap(f.fileno(), length=0, access=mmap.ACCESS_READ) as data:
+            total = len(data)
+            min_keep = int(total * min_keep_ratio)
+            step = max(int(total * step_ratio), 1024)
 
-        while keep_len >= min_keep and variant_index < max_variants:
-            keep = data[:keep_len]
-            soi = keep.find(b"\xff\xd8")
-            eoi = keep.rfind(b"\xff\xd9")
-            candidate = keep[soi:eoi + 2] if (soi != -1 and eoi != -1 and eoi > soi) else keep
+            keep_len = total
+            variant_index = 0
 
-            variant_index += 1
-            out_path = output_dir / f"{input_path.stem}_partial_top_{variant_index}.jpg"
-            try:
-                with open(out_path, "wb") as wf:
-                    wf.write(candidate)
+            while keep_len >= min_keep and variant_index < max_variants:
+                keep = data[:keep_len]
+                soi = keep.find(b"\xff\xd8")
+                eoi = keep.rfind(b"\xff\xd9")
+                candidate = keep[soi:eoi + 2] if (soi != -1 and eoi != -1 and eoi > soi) else keep
+
+                variant_index += 1
+                out_path = output_dir / f"{input_path.stem}_partial_top_{variant_index}.jpg"
                 try:
-                    with Image.open(out_path) as im:
-                        im.load()
-                    log(f"[PARTIAL] OK -> {out_path.name} (korunan {keep_len}/{total} bayt)", color="green")
-                    results.append(out_path)
-                except Exception as e:
-                    log(f"[PARTIAL] Deneme başarısız ({keep_len}B, v{variant_index}): {e}", color="orange")
+                    with open(out_path, "wb") as wf:
+                        wf.write(candidate)
                     try:
-                        out_path.unlink()
-                    except Exception:
-                        pass
-            except Exception as e:
-                log(f"[PARTIAL] Yazma hatası: {e}", color="red")
+                        with Image.open(out_path) as im:
+                            im.load()
+                        log(f"[PARTIAL] OK -> {out_path.name} (korunan {keep_len}/{total} bayt)", color="green")
+                        results.append(out_path)
+                    except Exception as e:
+                        log(f"[PARTIAL] Deneme başarısız ({keep_len}B, v{variant_index}): {e}", color="orange")
+                        try:
+                            out_path.unlink()
+                        except Exception:
+                            pass
+                except Exception as e:
+                    log(f"[PARTIAL] Yazma hatası: {e}", color="red")
 
-            keep_len -= step
+                keep_len -= step
 
         if results:
             log(f"[PARTIAL] {len(results)} başarılı varyant üretildi.", color="darkgreen")
