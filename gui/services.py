@@ -122,10 +122,10 @@ class RepairService:
                             and f.suffix.lower() in (".jpg", ".jpeg")
                         ):
                             ai_outputs = apply_ai_reconstruction_to_outputs(
-                                original=f,
-                                baseline_outputs=outputs,
+                                input_path=f,
+                                outputs=outputs,
+                                output_dir=out_dir,
                                 log=options.log,
-                                model_cmd=options.ai_external_cmd,
                                 damage_threshold=options.ai_damage_threshold,
                                 use_realesrgan=options.ai_use_realesrgan,
                                 use_gfpgan=options.ai_use_gfpgan,
