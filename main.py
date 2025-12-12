@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import traceback
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -22,6 +23,17 @@ def _cli_log(message: str, color: str | None = None) -> None:
     """
     print(message)
 
+
+def _write_cli_error_log(exc: Exception) -> Path:
+    """Beklenmeyen hataları dosyaya dökerek kullanıcıya yol gösterir."""
+    log_path = Path.cwd() / "resim_onarim_cli_error.log"
+    try:
+        with log_path.open("w", encoding="utf-8") as fh:
+            fh.write(f"Exception: {exc.__class__.__name__}: {exc}\n\n")
+            traceback.print_exc(file=fh)
+        return log_path
+    except Exception:
+        return log_path
 
 # -------------------------------------------------------
 # Yöntem listesi parse
@@ -354,7 +366,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
-
 # -------------------------------------------------------
 # main
 # -------------------------------------------------------
@@ -371,9 +382,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     try:
         return run_cli(args)
     except Exception as exc:
-        _cli_log(f"[HATA] {exc}", color="red")
-        return 1
-
+        log_path = _write_cli_error_log(exc)
+        _cli_log(f"[HATA] {exc.__class__.__name__}: {exc}", color="red")
+        _cli_log(f"Detaylı hata kaydı: {log_path}", color="orange")
+        return 1   
 
 if __name__ == "__main__":
     sys.exit(main())
