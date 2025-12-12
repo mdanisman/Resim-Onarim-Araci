@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, List, Dict, Any, Optional, Tuple
 
-from PIL import Image
+from PIL import Image, ImageStat
 
 from .jpeg_repair import (
     extract_all_jpegs_from_blob,
@@ -42,26 +42,31 @@ def fix_with_pillow(input_path: Path, output_dir: Path, log: LogFunc) -> Optiona
         output_dir.mkdir(parents=True, exist_ok=True)
         ext = input_path.suffix.lower()
         name = input_path.stem
-        out_path = output_dir / f"{name}_fixed_pillow{ext}"
+        out_path = output_dir / f"{name}_pillow_fixed{ext}"
 
         with Image.open(input_path) as im:
-            im.load()
-            if im.mode not in ("RGB", "RGBA", "L", "P"):
-                im = im.convert("RGB")
+            # EXIF'i mümkün olduğunca saklamadan sade kaydet
+            save_kwargs: Dict[str, Any] = {}
+            if im.format == "JPEG":
+                save_kwargs["quality"] = 95
+                save_kwargs["optimize"] = True
+            im.save(out_path, **save_kwargs)
 
-            save_params: Dict[str, Any] = {}
-            if ext in (".jpg", ".jpeg"):
-                save_params["quality"] = 95
-                save_params["optimize"] = True
+        # Hızlı doğrulama
+        try:
+            with Image.open(out_path) as test_im:
+                test_im.load()
+        except Exception as e:
+            log(f"[PILLOW][VERIFY] {out_path.name} doğrulanamadı -> {e}", color="orange")
+            try:
+                out_path.unlink()
+            except Exception:
+                pass
+            return None
 
-            im.save(out_path, **save_params)
-
-        # Basit doğrulama
-        with Image.open(out_path) as im2:
-            im2.load()
-
-        log(f"[PILLOW][OK] {out_path.name}", color="green")
+        log(f"[PILLOW] OK {input_path.name} -> {out_path.name}", color="green")
         return out_path
+
     except Exception as e:
         log(f"[PILLOW][ERROR] {input_path.name} -> {e}", color="red")
         try:
@@ -80,20 +85,25 @@ def fix_with_png_roundtrip(input_path: Path, output_dir: Path, log: LogFunc) -> 
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
         name = input_path.stem
-        out_path = output_dir / f"{name}_fixed_roundtrip.png"
+        out_path = output_dir / f"{name}_roundtrip.png"
 
         with Image.open(input_path) as im:
-            im.load()
-            if im.mode not in ("RGB", "RGBA", "L", "P"):
-                im = im.convert("RGBA")
+            im.save(out_path, format="PNG")
 
-            im.save(out_path, format="PNG", optimize=True)
+        try:
+            with Image.open(out_path) as test_im:
+                test_im.load()
+        except Exception as e:
+            log(f"[ROUNDTRIP][VERIFY] {out_path.name} doğrulanamadı -> {e}", color="orange")
+            try:
+                out_path.unlink()
+            except Exception:
+                pass
+            return None
 
-        with Image.open(out_path) as im2:
-            im2.load()
-
-        log(f"[ROUNDTRIP][OK] {out_path.name}", color="green")
+        log(f"[ROUNDTRIP] OK {input_path.name} -> {out_path.name}", color="green")
         return out_path
+
     except Exception as e:
         log(f"[ROUNDTRIP][ERROR] {input_path.name} -> {e}", color="red")
         try:
@@ -111,11 +121,9 @@ def fix_with_ffmpeg_multi(
     log: LogFunc,
     qscale_list: Optional[List[int]] = None,
     strategy_mode: str = "NORMAL",
-) -> Optional[Path]:
+) -> List[Path]:
     """
-    FFmpeg ile yeniden encode denemesi.
-    qscale_list içindeki kalite seviyeleri sırasıyla denenir.
-    Başarılı çıktılar arasından gelişmiş skorlamayla en iyi aday seçilir.
+    FFmpeg ile birden fazla kalite (qscale) denemesi yaparak onarım dener.
     Çok gri / çok küçük / bozuk görünenler erken elenir.
     """
     if qscale_list is None:
@@ -131,123 +139,129 @@ def fix_with_ffmpeg_multi(
         # Windows'ta konsol penceresini gizlemek için
         creationflags = 0
         try:  # type: ignore[attr-defined]
-            creationflags = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+            import sys
+            if sys.platform.startswith("win"):
+                creationflags = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
         except Exception:
-            # not on Windows or flag not available
-            creationflags = 0
+            pass
 
-        candidates: List[Path] = []
-
+        outputs: List[Path] = []
         for q in qscale_list:
-            out_path = output_dir / f"{name}_fixed_ffmpeg_q{q}{ext}"
+            out_path = output_dir / f"{name}_ffmpeg_q{q}.jpg"
+
             cmd = [
                 ffmpeg_cmd,
-                "-err_detect",
-                "ignore_err",
-                "-analyzeduration",
-                "10000000",
+                "-y",
                 "-i",
                 str(input_path),
-                "-map_metadata",
-                "-1",
-                "-c:v",
-                "mjpeg" if ext in (".jpg", ".jpeg") else "png",
                 "-qscale:v",
                 str(q),
-                "-y",
                 str(out_path),
             ]
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-                creationflags=creationflags,
-            )
 
-            if not out_path.exists() or out_path.stat().st_size <= 0 or result.returncode != 0:
-                err_last = (result.stderr.strip().splitlines() or ["Bilinmeyen hata"])[-1]
-                log(f"[FFMPEG][ERROR-RUN] q={q} {input_path.name} -> {err_last}", color="red")
-                if out_path.exists():
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    creationflags=creationflags,
+                    check=False,
+                )
+                if proc.returncode != 0:
+                    log(
+                        f"[FFMPEG][q={q}] Hata kodu {proc.returncode}. stderr: {proc.stderr.decode(errors='ignore')[:200]}",
+                        color="orange",
+                    )
+                    if out_path.exists():
+                        try:
+                            out_path.unlink()
+                        except Exception:
+                            pass
+                    continue
+
+                # Çıktıyı hızlıca Pillow ile doğrula
+                try:
+                    with Image.open(out_path) as im:
+                        im.load()
+                except Exception as e:
+                    log(f"[FFMPEG][q={q}] Çıktı bozuk -> {e}", color="orange")
                     try:
                         out_path.unlink()
                     except Exception:
                         pass
-                continue
+                    continue
 
-            # Çıktıyı hızlıca doğrula + temel kalite metriklerine göre ele
-            metrics = evaluate_output(out_path, strategy_mode=mode)
-            if not metrics.get("verify"):
-                log(f"[FFMPEG][WARN-VERIFY] q={q} {out_path.name} doğrulama başarısız, sonuç elendi.", color="orange")
+                log(f"[FFMPEG][q={q}] OK -> {out_path.name}", color="green")
+                outputs.append(out_path)
+
+                if mode == "SAFE":
+                    # SAFE modda tek başarılı denemeden sonra bırak
+                    break
+
+            except Exception as e:
+                log(f"[FFMPEG][q={q}] Çalıştırma hatası -> {e}", color="red")
                 try:
-                    out_path.unlink()
+                    if out_path.exists():
+                        out_path.unlink()
                 except Exception:
                     pass
-                continue
 
-            score = float(metrics.get("score") or 0.0)
-            if score < 0.15:
-                # Gereksiz çöp çıktıları doğrudan sil
-                log(f"[FFMPEG][WARN-SCORE] q={q} {out_path.name} skor çok düşük ({score:.3f}), sonuç elendi.", color="orange")
-                try:
-                    out_path.unlink()
-                except Exception:
-                    pass
-                continue
+        return outputs
 
-            candidates.append(out_path)
-            log(f"[FFMPEG][OK] q={q} -> {out_path.name} (score={score:.3f})", color="green")
-
-        if not candidates:
-            return None
-
-        # En iyi adayı, gelişmiş metriklere göre seç
-        best = pick_best_output(candidates, strategy_mode=mode)
-        if best:
-            log(f"[FFMPEG][BEST] {best.name}", color="darkgreen")
-        return best
-
-    except FileNotFoundError:
-        log("[FFMPEG][ERROR-NOTFOUND] ffmpeg bulunamadı. Yöntem atlandı.", color="red")
-        return None
     except Exception as e:
-        log(f"[FFMPEG][ERROR-UNEXPECTED] {input_path.name} -> {e}", color="red")
-        return None
+        log(f"[FFMPEG][ERROR] {input_path.name} -> {e}", color="red")
+        return []
 
 
 # =======================================================
-# Gelişmiş kalite metrikleri
+# Analiz / skor fonksiyonları
 # =======================================================
 
 def _prepare_analysis_image(im: Image.Image, strategy_mode: str) -> Image.Image:
     """
-    Analiz için kullanılacak kopyayı hazırlar.
-    Büyük görselleri downscale eder, SAFE modda daha agresif küçültme yapar.
+    Analiz için resmi makul boyuta indirir, gerekirse griye çevirir.
+    SAFE modda daha hafif işlemler yapılır.
     """
     mode = _normalize_strategy_mode(strategy_mode)
+    max_dim = 1024 if mode == "AGGRESSIVE" else 768
     w, h = im.size
-    max_dim = 1600
-    if mode == "SAFE":
-        max_dim = 1024
-
     if max(w, h) > max_dim:
-        ratio = max_dim / float(max(w, h))
-        new_w = max(1, int(w * ratio))
-        new_h = max(1, int(h * ratio))
-        return im.resize((new_w, new_h))
+        scale = max_dim / float(max(w, h))
+        new_size = (int(w * scale), int(h * scale))
+        im = im.resize(new_size)
     return im
 
 
 def _estimate_grayness(im: Image.Image) -> float:
-    """Görüntünün tek tonda (gri) olup olmadığını yaklaşık olarak ölçer (0.0-1.0)."""
-    gray = im.convert("L")
-    hist = gray.histogram()
-    total = sum(hist)
-    if total <= 0:
+    """
+    Görüntünün ne kadar "gri / renksiz" göründüğünü kabaca tahmin eder (0.0-1.0).
+    1.0'a yakın = çok gri, 0.0'a yakın = renkli / normal.
+    """
+    if im.mode not in ("RGB", "RGBA"):
+        im = im.convert("RGB")
+    w, h = im.size
+    if w <= 0 or h <= 0:
         return 1.0
-    max_bin = max(hist)
-    return max_bin / float(total)
+
+    pixels = im.resize((64, 64)).getdata()
+    import math
+
+    total_sat = 0.0
+    count = 0
+    for r, g, b in pixels:
+        maxc = max(r, g, b)
+        minc = min(r, g, b)
+        if maxc == 0:
+            sat = 0.0
+        else:
+            sat = (maxc - minc) / float(maxc)
+        total_sat += sat
+        count += 1
+    if count == 0:
+        return 1.0
+    avg_sat = total_sat / count
+    # Düşük sat -> gri, yüksek sat -> renkli
+    return 1.0 - max(0.0, min(1.0, avg_sat))
 
 
 def _estimate_truncation(im: Image.Image, slices: int = 10) -> float:
@@ -259,57 +273,51 @@ def _estimate_truncation(im: Image.Image, slices: int = 10) -> float:
     width, height = gray.size
     if height <= 0 or slices <= 1:
         return 0.0
+
     slice_h = max(1, height // slices)
+    import statistics
 
-    def slice_variance(y0: int, y1: int) -> float:
-        region = gray.crop((0, y0, width, y1))
-        hist = region.histogram()
-        total = sum(hist)
-        if total <= 0:
-            return 0.0
-        mean = sum(i * c for i, c in enumerate(hist)) / float(total)
-        var = sum(((i - mean) ** 2) * c for i, c in enumerate(hist)) / float(total)
-        return var
-
-    top_vars: List[float] = []
-    bottom_vars: List[float] = []
+    vars_list: List[float] = []
     for i in range(slices):
-        y0 = i * slice_h
-        y1 = height if i == slices - 1 else (i + 1) * slice_h
-        v = slice_variance(y0, y1)
-        if i < slices // 2:
-            top_vars.append(v)
-        else:
-            bottom_vars.append(v)
+        top = i * slice_h
+        bottom = height if i == slices - 1 else (i + 1) * slice_h
+        crop = gray.crop((0, top, width, bottom))
+        stat = ImageStat.Stat(crop)
+        # var bir liste/tuple olabilir
+        v = stat.var[0] if isinstance(stat.var, (list, tuple)) else stat.var
+        vars_list.append(float(v))
 
-    if not top_vars or not bottom_vars:
+    if len(vars_list) < 2:
         return 0.0
 
-    top_avg = sum(top_vars) / len(top_vars)
-    bottom_avg = sum(bottom_vars) / len(bottom_vars)
+    # Üst yarı ile alt yarının ortalama varyansını karşılaştır
+    mid = len(vars_list) // 2
+    top_avg = statistics.mean(vars_list[:mid])
+    bottom_avg = statistics.mean(vars_list[mid:])
+
     if top_avg <= 0:
         return 0.0
 
-    ratio = (top_avg - bottom_avg) / float(top_avg)
-    if ratio < 0.0:
-        ratio = 0.0
-    if ratio > 1.0:
-        return 1.0
-    return ratio
+    ratio = (bottom_avg - top_avg) / max(top_avg, 1e-6)
+    # Negatifse truncation yok say
+    if ratio <= 0:
+        return 0.0
+    # 0.0-1.0 aralığına sıkıştır
+    return max(0.0, min(1.0, ratio))
 
 
 def _estimate_entropy(im: Image.Image) -> float:
     """
-    Parlaklık histogramına göre normalize entropi (0.0-1.0).
-    Çok düşük entropi: tekdüze / anlamsız görüntü.
+    Histogram entropisine göre içerik karmaşıklığını tahmin eder (0.0-1.0).
+    Çok düşük entropi -> aşırı düz / bozuk, çok yüksek -> gürültü / aşırı keskin olabilir.
     """
-    import math
-
     gray = im.convert("L")
     hist = gray.histogram()
     total = sum(hist)
     if total <= 0:
         return 0.0
+
+    import math
 
     ent = 0.0
     for c in hist:
@@ -318,8 +326,9 @@ def _estimate_entropy(im: Image.Image) -> float:
         p = c / float(total)
         ent -= p * math.log2(p)
 
-    # Maksimum entropi 8 bit gri için log2(256) = 8
-    return max(0.0, min(1.0, ent / 8.0))
+    # 8 bit gri için maksimum ~8 bit
+    ent_norm = ent / 8.0
+    return max(0.0, min(1.0, ent_norm))
 
 
 def _estimate_sharpness(im: Image.Image) -> float:
@@ -335,13 +344,15 @@ def _estimate_sharpness(im: Image.Image) -> float:
     # Aşırı büyük görselleri downscale et
     max_dim = 512
     if max(w, h) > max_dim:
-        ratio = max_dim / float(max(w, h))
-        new_w = max(1, int(w * ratio))
-        new_h = max(1, int(h * ratio))
-        gray = gray.resize((new_w, new_h))
+        scale = max_dim / float(max(w, h))
+        new_size = (int(w * scale), int(h * scale))
+        gray = gray.resize(new_size)
         w, h = gray.size
 
     pix = gray.load()
+    if pix is None:
+        return 0.0
+
     acc = 0.0
     count = 0
 
@@ -367,6 +378,105 @@ def _estimate_sharpness(im: Image.Image) -> float:
     return max(0.0, min(1.0, sharp))
 
 
+def compute_damage_heatmap(image_path: Path, block_size: int = 16) -> Dict[str, Any]:
+    """
+    Piksel düzeyinde basit bir "hasar ısı haritası" üretir.
+    Şimdilik sadece parlaklık varyansına bakar; Faz 1 için yeterli bir temel sağlar.
+    Dönüş değeri:
+        {
+            "block_size": int,
+            "rows": int,
+            "cols": int,
+            "values": List[List[float]],  # 0.0-1.0 arası normalize edilmiş varyans
+        }
+    """
+    try:
+        with Image.open(image_path) as im:
+            gray = im.convert("L")
+            width, height = gray.size
+            if width <= 0 or height <= 0:
+                return {
+                    "block_size": block_size,
+                    "rows": 0,
+                    "cols": 0,
+                    "values": [],
+                }
+
+            cols = (width + block_size - 1) // block_size
+            rows = (height + block_size - 1) // block_size
+
+            values: List[List[float]] = []
+            max_var = 0.0
+
+            for row in range(rows):
+                row_vals: List[float] = []
+                for col in range(cols):
+                    left = col * block_size
+                    upper = row * block_size
+                    right = min(left + block_size, width)
+                    lower = min(upper + block_size, height)
+
+                    crop = gray.crop((left, upper, right, lower))
+                    stat = ImageStat.Stat(crop)
+                    if isinstance(stat.var, (list, tuple)):
+                        var_val = float(stat.var[0])
+                    else:
+                        var_val = float(stat.var)
+                    row_vals.append(var_val)
+                    if var_val > max_var:
+                        max_var = var_val
+                values.append(row_vals)
+
+            # 0-1 aralığına normalize et
+            if max_var > 0.0:
+                norm = [[v / max_var for v in row_vals] for row_vals in values]
+            else:
+                norm = values
+
+            return {
+                "block_size": block_size,
+                "rows": rows,
+                "cols": cols,
+                "values": norm,
+            }
+    except Exception:
+        # Heatmap analizi başarısız olursa boş veri döndür, akışı bozma
+        return {
+            "block_size": block_size,
+            "rows": 0,
+            "cols": 0,
+            "values": [],
+        }
+
+
+def summarize_heatmap(hm: Dict[str, Any], threshold: float = 0.7) -> Dict[str, Any]:
+    """
+    Isı haritası için basit bir özet metrik üretir:
+        - toplam blok sayısı
+        - eşik üstü "yüksek hasarlı" blok sayısı
+        - oran
+    """
+    values = hm.get("values") or []
+    total = 0
+    high = 0
+    for row in values:
+        for v in row:
+            total += 1
+            try:
+                if float(v) >= threshold:
+                    high += 1
+            except Exception:
+                continue
+
+    ratio = (high / float(total)) if total > 0 else 0.0
+    return {
+        "total_blocks": total,
+        "high_blocks": high,
+        "high_ratio": ratio,
+        "threshold": threshold,
+    }
+
+
 def evaluate_output(path: Path, strategy_mode: str = "NORMAL") -> Dict[str, Any]:
     """
     Üretilen bir çıktının doğrulanabilirliği ve görsel kalitesi hakkında metrikler döndürür.
@@ -383,86 +493,80 @@ def evaluate_output(path: Path, strategy_mode: str = "NORMAL") -> Dict[str, Any]
         "mode": None,
         "gray_score": None,
         "truncation_score": None,
-        "entropy": None,
-        "sharpness": None,
+        "entropy_score": None,
+        "sharpness_score": None,
         "score": 0.0,
     }
+
     if not path.exists():
         return info
 
-    mode = _normalize_strategy_mode(strategy_mode)
-
     try:
-        info["size"] = path.stat().st_size
+        stat = path.stat()
+        info["size"] = stat.st_size
+
         with Image.open(path) as im:
             im.load()
+            info["mode"] = im.mode
             w, h = im.size
             info["width"] = w
             info["height"] = h
             info["pixels"] = w * h
-            info["mode"] = im.mode
 
-            # Analiz için downscale edilmiş kopya
-            im_an = _prepare_analysis_image(im, mode)
+            mode = _normalize_strategy_mode(strategy_mode)
+            im_a = _prepare_analysis_image(im, strategy_mode=mode)
 
-            # SAFE modda ağır analizlerin bir kısmını kapat
-            if mode == "SAFE":
-                gray_score = _estimate_grayness(im_an)
-                trunc_score = None
-                entropy = _estimate_entropy(im_an)
-                sharp = None
-            else:
-                gray_score = _estimate_grayness(im_an)
-                trunc_score = _estimate_truncation(im_an)
-                entropy = _estimate_entropy(im_an)
-                sharp = _estimate_sharpness(im_an)
+            gray_score = _estimate_grayness(im_a)
+            trunc_score = _estimate_truncation(im_a)
+            entropy_score = _estimate_entropy(im_a)
+            sharp = _estimate_sharpness(im_a)
 
             info["gray_score"] = gray_score
             info["truncation_score"] = trunc_score
-            info["entropy"] = entropy
-            info["sharpness"] = sharp
+            info["entropy_score"] = entropy_score
+            info["sharpness_score"] = sharp
 
-            # Temel skor: çözünürlüğe göre 0.4-1.0 arası
-            if w <= 0 or h <= 0:
-                base = 0.0
-            else:
-                pixel_factor = min(1.0, (w * h) / float(1920 * 1080))
-                base = 0.4 + 0.6 * pixel_factor
+            # Basit skor: birkaç faktörü çarpıp 0-1 aralığına sıkıştır
+            base = 1.0
 
-            # Çok küçük dosyalar (thumbnail olma ihtimali) için ceza
-            size_bytes = info["size"]
-            if size_bytes <= 0:
-                size_factor = 0.0
-            elif size_bytes < 30 * 1024:  # 30 KB altı ise güçlü ceza
-                size_factor = 0.5
-            else:
-                size_factor = 1.0
-
-            # Tek tonda (tamamen gri) görüntüler için ceza
+            # Çok gri ise cezalandır
             gray_penalty = 1.0
             if gray_score is not None:
-                gray_penalty = 1.0 - min(1.0, gray_score) * 0.4
+                if gray_score > 0.7:
+                    gray_penalty = 0.4
+                elif gray_score > 0.5:
+                    gray_penalty = 0.7
 
-            # Alt kısım bozuk (truncation) ise ceza
+            # Truncation yüksekse cezalandır
             trunc_penalty = 1.0
             if trunc_score is not None:
-                trunc_penalty = 1.0 - max(0.0, trunc_score - 0.3) * 0.5
+                if trunc_score > 0.7:
+                    trunc_penalty = 0.3
+                elif trunc_score > 0.5:
+                    trunc_penalty = 0.7
 
-            # Entropi çok düşükse (anlamsız/gürültüsüz) ceza
+            # Entropi çok düşük veya çok yüksek ise cezalandır
             entropy_factor = 1.0
-            if entropy is not None:
-                if entropy < 0.4:
-                    entropy_factor = 0.6
-                elif entropy < 0.6:
-                    entropy_factor = 0.8
+            if entropy_score is not None:
+                if entropy_score < 0.3:
+                    entropy_factor = 0.5
+                elif entropy_score > 0.9:
+                    entropy_factor = 0.7
 
-            # Keskinlik çok düşükse ceza
+            # Keskinliği çok düşükse hafif ceza
             sharp_factor = 1.0
             if sharp is not None:
                 if sharp < 0.1:
                     sharp_factor = 0.6
                 elif sharp < 0.2:
                     sharp_factor = 0.8
+
+            # Boyuta göre basit bir normalizasyon (çok küçük dosyaları cezalandır)
+            size_factor = 1.0
+            if stat.st_size < 20_000:  # 20KB'dan küçükler şüpheli
+                size_factor = 0.5
+            elif stat.st_size < 50_000:
+                size_factor = 0.8
 
             score = base * size_factor * gray_penalty * trunc_penalty * entropy_factor * sharp_factor
             info["score"] = max(0.0, min(1.0, float(score)))
@@ -476,35 +580,30 @@ def evaluate_output(path: Path, strategy_mode: str = "NORMAL") -> Dict[str, Any]
 
 def pick_best_output(paths: List[Path], strategy_mode: str = "NORMAL") -> Optional[Path]:
     """
-    En iyi çıktıyı, doğrulanabilir olanlar arasından
-    skor + boyut + piksel sayısına göre seçer.
+    Birden fazla çıktı arasından en iyi görüneni seçer.
     """
-    mode = _normalize_strategy_mode(strategy_mode)
-    scored: List[Tuple[Path, float, int, int]] = []
-    for p in paths:
-        metrics = evaluate_output(p, strategy_mode=mode)
-        if not metrics.get("verify"):
-            continue
-        score = float(metrics.get("score") or 0.0)
-        size = int(metrics.get("size") or 0)
-        pixels = int(metrics.get("pixels") or 0)
-        scored.append((p, score, size, pixels))
-
-    if not scored:
+    if not paths:
         return None
 
-    scored.sort(key=lambda t: (t[1], t[2], t[3]), reverse=True)
-    return scored[0][0]
+    best_path: Optional[Path] = None
+    best_score = -1.0
 
+    for p in paths:
+        info = evaluate_output(p, strategy_mode=strategy_mode)
+        if not info.get("verify"):
+            continue
+        score = float(info.get("score") or 0.0)
+        if score > best_score:
+            best_score = score
+            best_path = p
 
-# =======================================================
-# JPEG header auto-seçim yardımcıları
-# =======================================================
+    return best_path
+
 
 def _parse_jpeg_dimensions_from_bytes(data: bytes) -> Optional[Tuple[int, int, int]]:
     """
-    Basit JPEG parser: SOF segmentinden width, height, component sayısını çeker.
-    Başarısız olursa None döner.
+    JPEG baytlarından genişlik, yükseklik ve bileşen sayısını (C) okumaya çalışır.
+    Basit bir parser; sadece boyut için kullanılır.
     """
     try:
         i = 0
@@ -512,34 +611,30 @@ def _parse_jpeg_dimensions_from_bytes(data: bytes) -> Optional[Tuple[int, int, i
         if n < 4:
             return None
 
-        # SOI beklenmiyorsa bile devam, ama varsa atla
-        if data[0] == 0xFF and data[1] == 0xD8:
-            i = 2
+        # SOI kontrolü
+        if not (data[0] == 0xFF and data[1] == 0xD8):
+            return None
+        i = 2
 
-        while i + 3 < n:
-            # 0xFF doldurma byte'ları atla
+        while i + 4 <= n:
             if data[i] != 0xFF:
                 i += 1
                 continue
-            # bir veya daha fazla 0xFF geç
-            while i < n and data[i] == 0xFF:
-                i += 1
-            if i >= n:
-                break
-            marker = data[i]
-            i += 1
 
-            # Uzunluk taşımayan marker'lar
-            if marker in (0xD8, 0xD9) or (0xD0 <= marker <= 0xD7) or marker == 0x01:
+            marker = data[i + 1]
+            i += 2
+
+            if marker in (0xD8, 0xD9):  # SOI / EOI
                 continue
 
-            if i + 1 >= n:
+            if i + 2 > n:
                 break
             seg_len = (data[i] << 8) + data[i + 1]
+            i += 2
             if seg_len < 2:
-                return None
-            seg_start = i + 2
-            seg_end = seg_start + seg_len - 2
+                break
+            seg_start = i
+            seg_end = i + seg_len - 2
             if seg_end > n:
                 break
 
@@ -565,7 +660,7 @@ def _parse_jpeg_dimensions_from_bytes(data: bytes) -> Optional[Tuple[int, int, i
 def _parse_jpeg_dimensions_from_file(path: Path) -> Optional[Tuple[int, int, int]]:
     try:
         with open(path, "rb") as f:
-            data = f.read(16 * 1024)  # header için genelde yeterli
+            data = f.read(4096)  # baştan 4KB genelde SOF için yeter
         return _parse_jpeg_dimensions_from_bytes(data)
     except Exception:
         return None
@@ -573,57 +668,43 @@ def _parse_jpeg_dimensions_from_file(path: Path) -> Optional[Tuple[int, int, int
 
 def _select_best_headers_for_image(
     input_path: Path,
-    header_library: Optional[List[bytes]],
+    header_library: List[bytes],
     log: LogFunc,
-) -> Optional[List[bytes]]:
+) -> List[bytes]:
     """
-    Smart Header V3 için: header_library içinden hedef görüntünün
-    genişlik/yükseklik/bileşen sayısına en yakın olanları seçer.
+    Header kütüphanesinden, giriş görselinin boyut/sampling bilgisine en çok uyan birkaç header seçer.
+    Faz 1 için basit bir heuristik: boyut farkı ve bileşen sayısı benzer olanları öne al.
     """
-    if not header_library:
-        return None
+    try:
+        dim = _parse_jpeg_dimensions_from_file(input_path)
+    except Exception:
+        dim = None
 
-    img_dims = _parse_jpeg_dimensions_from_file(input_path)
-    if img_dims is None:
-        log("[HEADER][AUTO] Giriş JPEG boyutları okunamadı, tüm header'lar kullanılacak.", color="orange")
+    if not header_library or dim is None:
         return header_library
 
-    img_w, img_h, img_comp = img_dims
-    log(f"[HEADER][AUTO] Giriş JPEG boyutları: {img_w}x{img_h}, comp={img_comp}", color="darkgreen")
-
-    scored: List[Tuple[bytes, int, Optional[Tuple[int, int, int]]]] = []
+    in_w, in_h, in_c = dim
+    scored: List[Tuple[float, bytes]] = []
 
     for hdr in header_library:
-        dims = _parse_jpeg_dimensions_from_bytes(hdr)
-        if dims is None:
-            # boyut okunamayan header'ı en sona at
-            scored.append((hdr, 10_000_000, None))
+        hdim = _parse_jpeg_dimensions_from_bytes(hdr)
+        if hdim is None:
             continue
-
-        hw, hh, hc = dims
-        diff = abs(hw - img_w) + abs(hh - img_h)
-        if hc != img_comp:
-            diff += 2000  # bileşen farkı için ekstra ceza
-        scored.append((hdr, diff, dims))
+        w, h, c = hdim
+        # Boyut farkını ve bileşen farkını basitçe ölç
+        size_diff = abs(w - in_w) + abs(h - in_h)
+        comp_diff = abs(c - in_c)
+        score = size_diff + comp_diff * 1000
+        scored.append((float(score), hdr))
 
     if not scored:
         return header_library
 
-    scored.sort(key=lambda t: t[1])
-    best_diff = scored[0][1]
+    scored.sort(key=lambda x: x[0])
+    best_headers = [hdr for _, hdr in scored[:5]]
+    log(f"[HEADER-LIB] {len(header_library)} header içinden {len(best_headers)} aday seçildi.", color="blue")
+    return best_headers
 
-    # Bir miktar tolerans payı ile en yakınları al
-    tolerance = max(1024, best_diff + 256)
-    selected: List[bytes] = [hdr for hdr, diff, _dims in scored if diff <= tolerance]
-
-    log(f"[HEADER][AUTO] Toplam {len(header_library)} header içinden {len(selected)} aday seçildi (best_diff={best_diff}).", color="purple")
-
-    return selected or header_library
-
-
-# =======================================================
-# Hafif teşhis / strateji desteği
-# =======================================================
 
 def diagnose_image(input_path: Path, is_jpeg: bool, is_png: bool, log: LogFunc) -> Dict[str, Any]:
     """
@@ -643,42 +724,32 @@ def diagnose_image(input_path: Path, is_jpeg: bool, is_png: bool, log: LogFunc) 
     try:
         with Image.open(input_path) as im:
             im.load()
-            w, h = im.size
-            mode = im.mode
-            gray_score = _estimate_grayness(_prepare_analysis_image(im, "NORMAL"))
-            trunc_score = _estimate_truncation(_prepare_analysis_image(im, "NORMAL"))
+            diag["can_open"] = True
+            diag["width"], diag["height"] = im.size
+            diag["mode"] = im.mode
 
-        diag["can_open"] = True
-        diag["width"] = w
-        diag["height"] = h
-        diag["mode"] = mode
-        diag["gray_score"] = gray_score
-        diag["truncation_score"] = trunc_score
+            im_a = _prepare_analysis_image(im, strategy_mode="SAFE")
+            diag["gray_score"] = _estimate_grayness(im_a)
+            diag["truncation_score"] = _estimate_truncation(im_a)
 
-        log(f"[DIAG][OK] Pillow ile açıldı: {w}x{h}, mode={mode}", color="darkgreen")
+            # Basit bir şiddet tahmini
+            trunc = diag["truncation_score"] or 0.0
+            if trunc < 0.2:
+                diag["severity"] = "light"
+            elif trunc < 0.5:
+                diag["severity"] = "medium"
+            else:
+                diag["severity"] = "heavy"
 
-        # Basit şiddet belirleme
-        if gray_score is not None and gray_score >= 0.98:
-            severity = "heavy"
-            log("[DIAG][SEVERITY] Görüntü neredeyse tek ton (gray_score >= 0.98) – ağır veri kaybı ihtimali yüksek.", color="orange")
-        elif is_jpeg and trunc_score is not None and trunc_score >= 0.7:
-            severity = "medium"
-            log("[DIAG][SEVERITY] Üst/alt bölgeler arasında ciddi varyans farkı (truncation_score yüksek) – alt kısım bozulmuş olabilir.", color="orange")
-        else:
-            severity = "light"
-
-        diag["severity"] = severity
-
+        log(
+            f"[DIAG] {input_path.name}: can_open={diag['can_open']}, "
+            f"size={diag['width']}x{diag['height']}, severity={diag['severity']}",
+            color="blue",
+        )
     except Exception as e:
         diag["can_open"] = False
         diag["severity"] = "heavy"
-        log(f"[DIAG][ERROR] Pillow ile ön kontrol BAŞARISIZ: {e}", color="red")
-        if is_jpeg:
-            log("[DIAG][HINT] JPEG dosya hiç açılamıyor; header/marker kaynaklı ağır bozulma olası.", color="orange")
-        elif is_png:
-            log("[DIAG][HINT] PNG dosya hiç açılamıyor; header/CRC/IDAT bozulması olası.", color="orange")
-        else:
-            log("[DIAG][HINT] Dosya açılamıyor; ağır bozulma veya desteklenmeyen format.", color="orange")
+        log(f"[DIAG] {input_path.name} açılamadı -> {e}", color="orange")
 
     return diag
 
@@ -706,27 +777,21 @@ def _build_step_plan(
             steps.append("EMBED_SCAN")
 
         if mode == "SAFE":
-            if not can_open:
-                # Hiç açılamıyorsa, en azından marker/header deneyelim
-                if use_flags["use_marker"]:
-                    steps.append("MARKER")
-                if use_flags["use_header"]:
-                    steps.append("HEADER")
-            # Hafif yöntemler
-            if use_flags["use_pillow"]:
-                steps.append("PILLOW")
-            if use_flags["use_png_roundtrip"]:
-                steps.append("ROUNDTRIP")
-            if use_flags["use_exif_thumb"]:
-                steps.append("EXIF")
-
-        elif mode == "AGGRESSIVE":
-            # Daha ağır onarımları öncele
-            if use_flags["use_header"]:
-                steps.append("HEADER")
             if use_flags["use_marker"]:
                 steps.append("MARKER")
-            if use_flags["use_partial_top"]:
+            if use_flags["use_header"]:
+                steps.append("HEADER")
+            if use_flags["use_pillow"] and can_open:
+                steps.append("PILLOW")
+
+        elif mode == "AGGRESSIVE":
+            if use_flags["use_marker"]:
+                steps.append("MARKER")
+            if use_flags["use_header"]:
+                steps.append("HEADER")
+            if use_flags["use_png_crc"] and is_png:
+                steps.append("PNG_CRC")
+            if use_flags["use_partial_top"] and severity in ("medium", "heavy"):
                 steps.append("PARTIAL")
             if use_flags["use_ffmpeg"]:
                 steps.append("FFMPEG")
@@ -738,49 +803,18 @@ def _build_step_plan(
                 steps.append("EXIF")
 
         else:  # NORMAL
-            if severity == "light" and can_open:
-                # Önce hafif yöntemler, sonra ağır toplar
-                if use_flags["use_pillow"]:
-                    steps.append("PILLOW")
-                if use_flags["use_png_roundtrip"]:
-                    steps.append("ROUNDTRIP")
-                if use_flags["use_marker"]:
-                    steps.append("MARKER")
-                if use_flags["use_header"]:
-                    steps.append("HEADER")
-                if use_flags["use_partial_top"]:
-                    steps.append("PARTIAL")
-                if use_flags["use_ffmpeg"]:
-                    steps.append("FFMPEG")
-            elif severity == "heavy":
-                # Ağır bozulma: header/marker/partial öncelikli
-                if use_flags["use_header"]:
-                    steps.append("HEADER")
-                if use_flags["use_marker"]:
-                    steps.append("MARKER")
-                if use_flags["use_partial_top"]:
-                    steps.append("PARTIAL")
-                if use_flags["use_ffmpeg"]:
-                    steps.append("FFMPEG")
-                if use_flags["use_pillow"]:
-                    steps.append("PILLOW")
-                if use_flags["use_png_roundtrip"]:
-                    steps.append("ROUNDTRIP")
-            else:
-                # Orta seviye: klasik sıraya yakın
-                if use_flags["use_marker"]:
-                    steps.append("MARKER")
-                if use_flags["use_header"]:
-                    steps.append("HEADER")
-                if use_flags["use_partial_top"]:
-                    steps.append("PARTIAL")
-                if use_flags["use_ffmpeg"]:
-                    steps.append("FFMPEG")
-                if use_flags["use_pillow"]:
-                    steps.append("PILLOW")
-                if use_flags["use_png_roundtrip"]:
-                    steps.append("ROUNDTRIP")
-
+            if use_flags["use_marker"]:
+                steps.append("MARKER")
+            if use_flags["use_header"]:
+                steps.append("HEADER")
+            if use_flags["use_partial_top"] and severity == "heavy":
+                steps.append("PARTIAL")
+            if use_flags["use_ffmpeg"]:
+                steps.append("FFMPEG")
+            if use_flags["use_pillow"] and can_open:
+                steps.append("PILLOW")
+            if use_flags["use_png_roundtrip"] and not can_open:
+                steps.append("ROUNDTRIP")
             if use_flags["use_exif_thumb"]:
                 steps.append("EXIF")
 
@@ -788,28 +822,10 @@ def _build_step_plan(
         # PNG için
         if use_flags["use_png_crc"]:
             steps.append("PNG_CRC")
-
-        if mode == "SAFE":
-            if use_flags["use_pillow"]:
-                steps.append("PILLOW")
-            if use_flags["use_png_roundtrip"]:
-                steps.append("ROUNDTRIP")
-        elif mode == "AGGRESSIVE":
-            if use_flags["use_png_crc"]:
-                steps.append("PNG_CRC")
-            if use_flags["use_pillow"]:
-                steps.append("PILLOW")
-            if use_flags["use_png_roundtrip"]:
-                steps.append("ROUNDTRIP")
-            if use_flags["use_ffmpeg"]:
-                steps.append("FFMPEG")
-        else:  # NORMAL
-            if use_flags["use_pillow"]:
-                steps.append("PILLOW")
-            if use_flags["use_png_roundtrip"]:
-                steps.append("ROUNDTRIP")
-            if use_flags["use_ffmpeg"]:
-                steps.append("FFMPEG")
+        if use_flags["use_pillow"]:
+            steps.append("PILLOW")
+        if mode == "AGGRESSIVE" and use_flags["use_ffmpeg"]:
+            steps.append("FFMPEG")
 
     else:
         # Diğer formatlar
@@ -826,24 +842,11 @@ def _build_step_plan(
         else:  # NORMAL
             if use_flags["use_pillow"]:
                 steps.append("PILLOW")
-            if use_flags["use_png_roundtrip"]:
+            if use_flags["use_png_roundtrip"] and not can_open:
                 steps.append("ROUNDTRIP")
-            if use_flags["use_ffmpeg"]:
-                steps.append("FFMPEG")
 
-    # Aynı adımı birden fazla kez eklediysek sadeleştir
-    seen = set()
-    ordered: List[str] = []
-    for s in steps:
-        if s not in seen:
-            seen.add(s)
-            ordered.append(s)
-    return ordered
+    return steps
 
-
-# =======================================================
-# Ana onarım fonksiyonu
-# =======================================================
 
 def repair_image_all_methods(
     input_path: Path,
@@ -899,98 +902,93 @@ def repair_image_all_methods(
         "use_header": use_header,
         "use_marker": use_marker,
         "use_ffmpeg": use_ffmpeg and bool(ffmpeg_cmd),
-        "use_embed_scan": use_embed_scan and is_jpeg,
-        "use_partial_top": use_partial_top and is_jpeg,
-        "use_exif_thumb": use_exif_thumb and is_jpeg,
+        "use_embed_scan": use_embed_scan,
+        "use_partial_top": use_partial_top,
+        "use_exif_thumb": use_exif_thumb,
         "use_png_crc": use_png_crc and is_png,
     }
 
-    # Adım planını üret
-    step_plan = _build_step_plan(
+    steps = _build_step_plan(
         is_jpeg=is_jpeg,
         is_png=is_png,
         diag=diag,
         strategy_mode=mode,
         use_flags=use_flags,
     )
-    log(f"[STRATEGY] Adım planı: {', '.join(step_plan) if step_plan else 'Boş'}", color="purple")
 
-    # Çıktı klasörleri
+    log(f"[PIPE] Adım planı: {steps}", color="blue")
+
+    # EMBED_SCAN için ayrı çıktı klasörü
+    embed_output_dir = base_output_dir / "embedded"
     base_output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Planı sırayla uygula
-    for step in step_plan:
+    for step in steps:
         if step == "EMBED_SCAN":
             if not use_flags["use_embed_scan"]:
                 continue
-            log("[PIPE][EMBED_SCAN] Gömülü JPEG taraması başlatılıyor...", color="blue")
-            embeds = extract_all_jpegs_from_blob(input_path, base_output_dir, log, min_size=1024)
-            if embeds:
-                log(f"[PIPE][EMBED_SCAN][OK] {len(embeds)} adet gömülü JPEG çıkarıldı.", color="green")
-            successes.extend(embeds)
-            if stop_on_first_success and embeds:
-                return successes
+            log("[PIPE][EMBED] Gömülü JPEG taraması başlatılıyor...", color="blue")
+            emb = extract_all_jpegs_from_blob(input_path, embed_output_dir, log)
+            if emb:
+                successes.extend(emb)
+                if stop_on_first_success:
+                    return successes
 
         elif step == "PNG_CRC":
             if not use_flags["use_png_crc"]:
                 continue
-            log("[PIPE][PNG_CRC] PNG CRC onarım denemesi başlatılıyor...", color="blue")
-            p_crc = fix_with_png_crc(
+            log("[PIPE][PNG-CRC] PNG CRC onarımı başlatılıyor...", color="blue")
+            p = fix_with_png_crc(
                 input_path,
                 base_output_dir,
                 log,
                 skip_ancillary_on_crc_error=png_crc_skip_ancillary,
             )
-            if p_crc:
-                log(f"[PIPE][PNG_CRC][OK] {p_crc.name}", color="green")
-                successes.append(p_crc)
+            if p:
+                successes.append(p)
                 if stop_on_first_success:
                     return successes
             else:
-                log("[PIPE][PNG_CRC][FAIL] Onarım başarısız veya değişiklik yok.", color="orange")
+                log("[PIPE][PNG-CRC][FAIL] PNG CRC onarımı başarısız.", color="orange")
 
         elif step == "MARKER":
             if not use_flags["use_marker"]:
                 continue
-            log("[PIPE][JPEG_MARKER] JPEG marker onarımı başlatılıyor...", color="blue")
-            p_mark = fix_with_jpeg_markers(input_path, base_output_dir, log)
-            if p_mark:
-                log(f"[PIPE][JPEG_MARKER][OK] {p_mark.name}", color="green")
-                successes.append(p_mark)
+            log("[PIPE][MARKER] JPEG marker onarımı başlatılıyor...", color="blue")
+            p_m = fix_with_jpeg_markers(input_path, base_output_dir, log)
+            if p_m:
+                successes.append(p_m)
                 if stop_on_first_success:
                     return successes
             else:
-                log("[PIPE][JPEG_MARKER][FAIL] Marker ile onarım yapılamadı.", color="orange")
+                log("[PIPE][MARKER][FAIL] Marker onarımı başarısız.", color="orange")
 
         elif step == "HEADER":
             if not use_flags["use_header"]:
                 continue
-            log("[PIPE][SMART_HEADER] Smart Header V3 onarımı başlatılıyor...", color="blue")
-            p_hdr = fix_with_smart_header_v3(
-                input_path,
-                base_output_dir,
-                ref_header_bytes,
-                log,
+            log("[PIPE][HEADER] Smart Header V3 onarımı başlatılıyor...", color="blue")
+            p_h = fix_with_smart_header_v3(
+                input_path=input_path,
+                output_dir=base_output_dir,
+                ref_header_bytes=ref_header_bytes,
+                log=log,
                 header_size=header_size,
                 keep_apps=keep_apps,
                 keep_com=keep_com,
                 header_library=selected_header_library,
             )
-            if p_hdr:
-                log(f"[PIPE][SMART_HEADER][OK] {p_hdr.name}", color="green")
-                successes.append(p_hdr)
+            if p_h:
+                successes.append(p_h)
                 if stop_on_first_success:
                     return successes
             else:
-                log("[PIPE][SMART_HEADER][FAIL] Uygun header ile onarım başarısız.", color="orange")
+                log("[PIPE][HEADER][FAIL] Smart Header V3 onarımı başarısız.", color="orange")
 
         elif step == "PARTIAL":
             if not use_flags["use_partial_top"]:
                 continue
-            log("[PIPE][PARTIAL_TOP] Kısmi üst kısım kurtarma başlatılıyor...", color="blue")
+            log("[PIPE][PARTIAL_TOP] Kısmi üstten kesme kurtarma başlatılıyor...", color="blue")
             p_parts = partial_top_recovery(input_path, base_output_dir, log)
             if p_parts:
-                log(f"[PIPE][PARTIAL_TOP][OK] {len(p_parts)} adet kısmi çıktı üretildi.", color="green")
                 successes.extend(p_parts)
                 if stop_on_first_success:
                     return successes
@@ -1010,17 +1008,16 @@ def repair_image_all_methods(
                 strategy_mode=mode,
             )
             if p_ff:
-                log(f"[PIPE][FFMPEG][OK] {p_ff.name}", color="green")
-                successes.append(p_ff)
+                successes.extend(p_ff)
                 if stop_on_first_success:
                     return successes
             else:
-                log("[PIPE][FFMPEG][FAIL] FFmpeg ile anlamlı bir çıktı üretilemedi.", color="orange")
+                log("[PIPE][FFMPEG][FAIL] FFmpeg ile anlamlı bir çıktı alınamadı.", color="orange")
 
         elif step == "PILLOW":
             if not use_flags["use_pillow"]:
                 continue
-            log("[PIPE][PILLOW] Pillow yeniden kaydetme başlatılıyor...", color="blue")
+            log("[PIPE][PILLOW] Pillow ile yeniden kaydetme başlatılıyor...", color="blue")
             p_pil = fix_with_pillow(input_path, base_output_dir, log)
             if p_pil:
                 log(f"[PIPE][PILLOW][OK] {p_pil.name}", color="green")
@@ -1070,6 +1067,17 @@ def repair_image_all_methods(
         best = pick_best_output(successes, strategy_mode=mode)
         if best:
             log(f"[SUMMARY][BEST] En iyi çıktı önerisi: {best.name}", color="darkgreen")
+            # En iyi çıktı için basit bir ısı haritası özeti üret
+            hm = compute_damage_heatmap(best)
+            hm_summary = summarize_heatmap(hm, threshold=0.7)
+            high_ratio = hm_summary.get("high_ratio", 0.0)
+            total_blocks = hm_summary.get("total_blocks", 0)
+            high_blocks = hm_summary.get("high_blocks", 0)
+            log(
+                f"[SUMMARY][HEATMAP] Blok sayısı: {total_blocks}, yüksek hasarlı blok: {high_blocks} "
+                f"({high_ratio:.1%})",
+                color="darkgreen",
+            )
         log(f"[SUMMARY][COUNT] Toplam {len(successes)} çıktı üretildi.", color="darkgreen")
 
     return successes

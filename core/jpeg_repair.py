@@ -569,7 +569,7 @@ def fix_with_smart_header_v3(
                 )
                 return None
 
-            # Buraya geldiysek onarım başarılı demektir
+            # Buraya geldiysek onarım başarılı
             with open(out_path, "wb") as f_out:
                 f_out.write(new_data)
 
@@ -640,4 +640,3 @@ def fix_with_smart_header_v3(
     except Exception as e:
         log(f"[SMART-HEADER V3] HATA {input_path.name} -> {e}", color="red")
         return None
-

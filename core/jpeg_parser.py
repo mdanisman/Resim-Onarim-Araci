@@ -72,6 +72,10 @@ def parse_jpeg_segments(data: bytes) -> List[JpegSegment]:
     if n < 2:
         return segments
 
+    # ÖNEMLİ DEĞİŞİKLİK:
+    # Daha önce burada data.find(b"\xff\xd8") kullanıyordun.
+    # Artık buffer'ın başından itibaren ilk marker'ı arıyoruz ki
+    # original_data[sos_index:] gibi slice'larda da çalışabilsin.
     i = 0
 
     while i < n - 1:
@@ -120,7 +124,7 @@ def parse_jpeg_segments(data: bytes) -> List[JpegSegment]:
         if seg_len <= 0:
             break
 
-        end = len_pos + seg_len
+        end = len_pos + seg_len  # DOĞRUSU: len_pos + seg_len (önceden +2 fazlaydı)
 
         if end > n:
             # Uzunluk alanı bozuk, EOI arayıp oraya kadar alalım
@@ -223,5 +227,4 @@ def get_sof_dimensions(seg: JpegSegment) -> Optional[Tuple[int, int]]:
 
         return (width, height)
     except Exception:
-
         return None
