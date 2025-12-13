@@ -21,16 +21,18 @@ title Resim Onarim Araci - Kurulum Sihirbazi ^| Muharrem DANISMAN
 cls
 echo.
 echo  ===========================================================================
-echo                         RESIM ONARIM ARACI - KURULUM SIHIRBAZI
+echo                       RESIM ONARIM ARACI
+echo                         KURULUM SIHIRBAZI
 echo  ===========================================================================
-echo   Bu sihirbaz aracin calismasi icin gerekli tum bagimliliklari yukler.
 echo.
-echo   - Python 3.10 kontrolu / kurulumu (AI MODEL UYUMU ICIN ZORUNLU)
-echo   - Temel kutuphaneler: Pillow, numpy, piexif, opencv-python (gereksinimler.txt)
-echo   - AI kutuphaneleri: torch, torchvision, basicsr, facexlib, gfpgan, realesrgan
-echo   - Stable Diffusion: diffusers, transformers
+echo   Bu sihirbaz asagidaki islemleri otomatik yapar:
 echo.
-echo   Python zaten varsa tekrar kurulmaz.
+echo     * Python 3.10 kontrolu / kurulumu
+echo     * Gerekli Python kutuphaneleri
+echo     * AI model dosyalari (GFPGAN / RealESRGAN)
+echo.
+echo   Not: Python sistemde varsa tekrar kurulmaz.
+echo.
 echo  ===========================================================================
 echo.
 pause
@@ -41,7 +43,7 @@ pause
 cls
 echo.
 echo  ===========================================================================
-echo                      ADIM 1 / 4 - PYTHON KONTROLU
+echo                     ADIM 1 / 4  -  PYTHON KONTROLU
 echo  ===========================================================================
 
 set PY310_EXE=
@@ -50,16 +52,22 @@ if exist "C:\Program Files\Python310\python.exe" set PY310_EXE=C:\Program Files\
 if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" set PY310_EXE=%LOCALAPPDATA%\Programs\Python\Python310\python.exe
 
 if defined PY310_EXE (
-    echo  Python 3.10 bulundu: %PY310_EXE%
+    echo  [OK] Python 3.10 bulundu:
+    echo       %PY310_EXE%
+    echo.
     pause
     goto STEP2
 )
 
-echo  Python 3.10 bulunamadi → indiriliyor...
+echo  [!] Python 3.10 bulunamadi
+echo      Indirme islemi baslatiliyor...
+echo.
+
 powershell -Command "Invoke-WebRequest '%PY_INSTALLER_URL%' -OutFile '%PY_INSTALLER%'" 2>nul
 
 if %errorlevel% neq 0 (
-    echo HATA: Python indirilemedi!
+    echo.
+    echo  [HATA] Python indirilemedi!
     pause
     exit /b 1
 )
@@ -71,14 +79,15 @@ if exist "C:\Program Files\Python310\python.exe" set PY310_EXE=C:\Program Files\
 if exist "%LOCALAPPDATA%\Programs\Python\Python310\python.exe" set PY310_EXE=%LOCALAPPDATA%\Programs\Python\Python310\python.exe
 
 if not defined PY310_EXE (
-    echo HATA: Python kuruldu fakat bulunamadi!
+    echo.
+    echo  [HATA] Python kuruldu fakat bulunamadi!
     pause
     exit /b 1
 )
 
-echo  Python 3.10 kuruldu.
+echo.
+echo  [OK] Python 3.10 kurulumu tamamlandi.
 pause
-
 
 
 :: ============================================================================
@@ -88,16 +97,9 @@ pause
 cls
 echo.
 echo  ===========================================================================
-echo                ADIM 2 / 4 - BAGIMLILIKLAR YUKLENIYOR
-echo  ===========================================================================
-echo   Yuklenecek kutuphaneler:
-echo   Pillow, numpy, piexif, opencv-python
-echo   torch + torchvision (CPU)
-echo   basicsr, facexlib, gfpgan, realesrgan
-echo   diffusers, transformers
+echo                  ADIM 2 / 4  -  BAGIMLILIKLAR
 echo  ===========================================================================
 
-echo.
 echo  pip guncelleniyor...
 "%PY310_EXE%" -m pip install --upgrade pip
 
@@ -105,7 +107,8 @@ echo.
 echo  Torch (CPU) yukleniyor...
 "%PY310_EXE%" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --no-warn-script-location
 if %errorlevel% neq 0 (
-    echo HATA: Torch yuklenemedi!
+    echo.
+    echo  [HATA] Torch yuklenemedi!
     pause
     exit /b 1
 )
@@ -113,70 +116,80 @@ if %errorlevel% neq 0 (
 echo.
 echo  Diger gereksinimler yukleniyor...
 "%PY310_EXE%" -m pip install -r "%REQUIREMENTS_FILE%" --no-warn-script-location
-
 if %errorlevel% neq 0 (
-    echo HATA: gereksinimler.txt yuklenirken hata olustu!
+    echo.
+    echo  [HATA] gereksinimler yuklenirken hata olustu!
     pause
     exit /b 1
 )
 
 echo.
-echo  => Tum bagimliliklar yuklendi.
+echo  [OK] Tum bagimliliklar yuklendi.
 pause
 goto STEP3
 
 
-
 :: ============================================================================
-:: ADIM 3 - GOOGLE DRIVE MODEL DOSYASI INDIRME
+:: ADIM 3 - MODEL DOSYALARI
 :: ============================================================================
 :STEP3
 cls
 echo.
 echo  ===========================================================================
-echo                 ADIM 3 / 4 - MODEL DOSYALARI INDIRILIYOR
+echo                  ADIM 3 / 4  -  MODEL KONTROLU
 echo  ===========================================================================
 
 if not exist "%MODEL_DIR%" mkdir "%MODEL_DIR%"
 
-:: ---- Google Drive Doğrudan İndirme Linkleri ----
-set GFPGAN_DRIVE=https://drive.google.com/uc?export^=download^&id=1plO391KI_tFMAudOlHhQooR_LGjPF_jW
-set ESRGAN_DRIVE=https://drive.google.com/uc?export^=download^&id=1o0gpcvfVbnD2gdM5qkVcd04YO-Nlkm6e
-set ESRNET_DRIVE=https://drive.google.com/uc?export^=download^&id=15njh9lkvdBgBuHx24LrsTDT7YyFKUtGm
+set FIRST_INSTALL=0
+if not exist "%MODEL_DIR%\versiyon.txt" set FIRST_INSTALL=1
 
 echo.
-echo  GFPGAN indiriliyor...
-powershell -Command "Invoke-WebRequest '%GFPGAN_DRIVE%' -OutFile '%MODEL_DIR%\GFPGANv1.3.pth'" 2>nul
-if %errorlevel% neq 0 (
-    echo  HATA: GFPGAN indirilemedi!
-    pause
-    exit /b 1
+echo  Versiyon bilgisi aliniyor...
+"%PY310_EXE%" -m gdown --fuzzy "https://drive.google.com/file/d/1q8XQB3hhTo-fIObHAOXniQw1hhTCR5nf/view" -O "%MODEL_DIR%\versiyon_tmp.txt"
+
+for %%M in (GFPGAN REALESRGAN REALRESNET) do (
+
+    set REMOTE_VER=
+    set LOCAL_VER=
+
+    for /f "tokens=2 delims==" %%R in ('findstr %%M "%MODEL_DIR%\versiyon_tmp.txt"') do set REMOTE_VER=%%R
+    if "!FIRST_INSTALL!"=="0" (
+        for /f "tokens=2 delims==" %%L in ('findstr %%M "%MODEL_DIR%\versiyon.txt"') do set LOCAL_VER=%%L
+    )
+
+    if "!FIRST_INSTALL!"=="1" (
+        echo.
+        echo  [ILK KURULUM] %%M indiriliyor...
+        set DO_DOWNLOAD=1
+    ) else if not "!REMOTE_VER!"=="!LOCAL_VER!" (
+        echo.
+        echo  [GUNCELLEME] %%M yeni surum bulundu, indiriliyor...
+        set DO_DOWNLOAD=1
+    ) else (
+        echo.
+        echo  [OK] %%M zaten guncel.
+        set DO_DOWNLOAD=0
+    )
+
+    if "!DO_DOWNLOAD!"=="1" (
+        if "%%M"=="GFPGAN" "%PY310_EXE%" -m gdown 1plO391KI_tFMAudOlHhQooR_LGjPF_jW -O "%MODEL_DIR%\GFPGANv1.3.pth"
+        if "%%M"=="REALESRGAN" "%PY310_EXE%" -m gdown 1o0gpcvfVbnD2gdM5qkVcd04YO-Nlkm6e -O "%MODEL_DIR%\RealESRGAN_x4plus.pth"
+        if "%%M"=="REALRESNET" "%PY310_EXE%" -m gdown 15njh9lkvdBgBuHx24LrsTDT7YyFKUtGm -O "%MODEL_DIR%\RealESRNet_x4plus.pth"
+    )
 )
 
-echo  RealESRGAN_x4plus indiriliyor...
-powershell -Command "Invoke-WebRequest '%ESRGAN_DRIVE%' -OutFile '%MODEL_DIR%\RealESRGAN_x4plus.pth'" 2>nul
-if %errorlevel% neq 0 (
-    echo  HATA: RealESRGAN indirilemedi!
-    pause
-    exit /b 1
-)
-
-echo  RealESRNet_x4plus indiriliyor...
-powershell -Command "Invoke-WebRequest '%ESRNET_DRIVE%' -OutFile '%MODEL_DIR%\RealESRNet_x4plus.pth'" 2>nul
-if %errorlevel% neq 0 (
-    echo  HATA: RealESRNet indirilemedi!
-    pause
-    exit /b 1
-)
+copy "%MODEL_DIR%\versiyon_tmp.txt" "%MODEL_DIR%\versiyon.txt" >nul
+del "%MODEL_DIR%\versiyon_tmp.txt" >nul 2>&1
 
 echo.
-echo  => Tum modeller Drive'dan basariyla indirildi.
+echo  [OK] Model islemleri tamamlandi.
 pause
 goto STEP4
 
 
 :: ============================================================================
-:: ADIM 4 - BASLAT.CMD OLUSTURMA
+:: ADIM 4 - BASLAT.CMD
 :: ============================================================================
 :STEP4
 cls
@@ -192,9 +205,11 @@ echo pause
 
 echo.
 echo  ===========================================================================
-echo                   KURULUM BASARIYLA TAMAMLANDI!
+echo                    KURULUM BASARIYLA TAMAMLANDI
 echo  ===========================================================================
-echo  Programi calistirmak icin: Baslat.cmd
+echo.
+echo   Programi baslatmak icin:
+echo   -> Baslat.cmd
 echo.
 pause
 

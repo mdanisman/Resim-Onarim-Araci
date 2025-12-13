@@ -26,3 +26,6 @@ realesrgan>=0.3.0
 # Stable Diffusion Inpainting
 diffusers>=0.27.0
 transformers>=4.41.0
+
+# Google Drive indirme
+gdown>=5.2.0
