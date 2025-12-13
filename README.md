@@ -47,10 +47,10 @@ Python yüklü olmasa bile aşağıdaki adımları izleyerek başlayabilirsiniz.
 ### 1. 📦 Program Klasörünü Hazırlama
 - İndirdiğiniz ZIP dosyasını açın.
 - Klasörü sabit bir konuma (ör. Masaüstü veya `C:\Resim Onarım Aracı`) çıkarın.
-- `gereksinimler.txt` ve `Kurulumu.bat` dosyalarının klasörde olduğundan emin olun.
+- `gereksinimler.txt` ve `Kurulum.bat` dosyalarının klasörde olduğundan emin olun.
 
 ### 2. 🛠 Tek Tıkla Kurulumu Başlatma
-- `Kurulumu_Baslat.bat` dosyasına sağ tıklayın ve **Yönetici olarak çalıştırın**.
+- `Kurulum.bat` çift tıklayın ve çalıştırın**.
 - Komut dosyası Python'u indirir, sistem PATH'ine ekler ve `gereksinimler.txt` içindeki Python kütüphanelerini kurar.
 - Kurulum tamamlandığında komut penceresi kapanır.
 
