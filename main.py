@@ -1,27 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
+import time
 import traceback
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
+from uuid import uuid4
 
 from core.jpeg_repair import build_header_library_from_folder
 from core.repair_engine import pick_best_output, repair_image_all_methods
 from core.ai_patch import apply_ai_reconstruction_to_outputs
 from gui import run_app
+from logging_utils import create_logger
 from utils import DEST_SUBFOLDER_NAME, detect_ffmpeg, is_image_file
-
-
-# -------------------------------------------------------
-# Basit CLI log fonksiyonu
-# -------------------------------------------------------
-def _cli_log(message: str, color: str | None = None) -> None:
-    """
-    Basit CLI loglayıcısı.
-    color parametresi şimdilik sadece API uyumu için var, terminalde kullanılmıyor.
-    """
-    print(message)
 
 
 def _write_cli_error_log(exc: Exception) -> Path:
@@ -134,6 +127,17 @@ def _output_dir_for_file(base_output: Path, input_root: Path, file_path: Path) -
 # CLI Çalıştırma
 # -------------------------------------------------------
 def run_cli(args: argparse.Namespace) -> int:
+    operation_id = f"CLI-{uuid4()}"
+    logger = create_logger(operation_id=operation_id, step="cli")
+
+    def log(message: str, color: str | None = None, extra: Optional[dict] = None) -> None:
+        level = logging.INFO
+        if color == "red":
+            level = logging.ERROR
+        elif color == "orange":
+            level = logging.WARNING
+        logger.log(level, message, extra=extra or {})
+
     input_path = Path(args.input).resolve()
 
     ffmpeg_cmd = detect_ffmpeg()
@@ -155,15 +159,16 @@ def run_cli(args: argparse.Namespace) -> int:
         header_library = build_header_library_from_folder(lib_path)
 
     if method_flags["ffmpeg"] and not ffmpeg_cmd:
-        _cli_log(
+        log(
             "[WARN] FFmpeg isteniyor ancak sistemde bulunamadı, devre dışı bırakılıyor.",
             color="orange",
+            extra={"step": "ffmpeg-check", "method": "ffmpeg", "result": "skipped"},
         )
         method_flags["ffmpeg"] = False
 
     files = _collect_input_files(input_path)
     if not files:
-        _cli_log("İşlenecek görsel bulunamadı.", color="red")
+        log("İşlenecek görsel bulunamadı.", color="red", extra={"step": "input", "result": "failed"})
         return 1
 
     base_output = _determine_output_root(input_path, args.output)
@@ -183,18 +188,29 @@ def run_cli(args: argparse.Namespace) -> int:
     ai_use_inpaint = not args.ai_no_inpaint
     ai_damage_threshold = float(args.ai_damage_threshold)
 
-    _cli_log(f"Toplam {len(files)} dosya işlenecek.")
-    _cli_log(f"Çıktı kök klasörü: {base_output}")
+    log(
+        f"Toplam {len(files)} dosya işlenecek.",
+        extra={"step": "process-start", "result": "running"},
+    )
+    log(
+        f"Çıktı kök klasörü: {base_output}",
+        extra={"step": "output", "result": "ready"},
+    )
     if ai_enabled:
-        _cli_log(
+        log(
             f"AI JPEG Patch Reconstruction: AKTİF (Real-ESRGAN={ai_use_realesrgan}, "
             f"GFPGAN={ai_use_gfpgan}, Inpaint={ai_use_inpaint}, "
             f"threshold={ai_damage_threshold})",
+            extra={"step": "ai-config", "method": "ai_patch", "result": "enabled"},
         )
     else:
-        _cli_log("AI JPEG Patch Reconstruction: PASİF")
+        log(
+            "AI JPEG Patch Reconstruction: PASİF",
+            extra={"step": "ai-config", "method": "ai_patch", "result": "disabled"},
+        )
 
     success_count = 0
+    process_started = time.perf_counter()
 
     for idx, file_path in enumerate(files, start=1):
         out_dir = _output_dir_for_file(
@@ -204,7 +220,11 @@ def run_cli(args: argparse.Namespace) -> int:
         )
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        _cli_log(f"[{idx}/{len(files)}] İşleniyor: {file_path}")
+        log(
+            f"[{idx}/{len(files)}] İşleniyor: {file_path}",
+            extra={"step": "file-start", "file": str(file_path), "result": "processing"},
+        )
+        file_started = time.perf_counter()
         outputs = repair_image_all_methods(
             input_path=file_path,
             base_output_dir=out_dir,
@@ -218,7 +238,7 @@ def run_cli(args: argparse.Namespace) -> int:
             ffmpeg_qscale_list=q_list,
             stop_on_first_success=args.stop_on_first_success,
             header_size=args.header_size_kb * 1024,
-            log=_cli_log,
+            log=log,
             keep_apps=True,
             keep_com=True,
             header_library=header_library,
@@ -232,7 +252,8 @@ def run_cli(args: argparse.Namespace) -> int:
         )
 
         # AI JPEG Patch Reconstruction
-        if ai_enabled and outputs:
+        if ai_enabled and outputs and file_path.suffix.lower() in (".jpg", ".jpeg"):
+            ai_started = time.perf_counter()
             outputs = apply_ai_reconstruction_to_outputs(
                 input_path=file_path,
                 outputs=outputs,
@@ -242,19 +263,62 @@ def run_cli(args: argparse.Namespace) -> int:
                 use_inpaint=ai_use_inpaint,
                 damage_threshold=ai_damage_threshold,
                 strategy_mode=args.strategy_mode.upper(),
-                log=_cli_log,
+                log=log,
+            )
+            log(
+                "AI JPEG Patch Reconstruction tamamlandı.",
+                extra={
+                    "step": "ai-patch",
+                    "file": str(file_path),
+                    "method": "ai_patch",
+                    "result": "success",
+                    "duration_ms": int((time.perf_counter() - ai_started) * 1000),
+                },
+            )
+        elif ai_enabled and file_path.suffix.lower() not in (".jpg", ".jpeg"):
+            log(
+                "AI patch JPEG olmadığı için atlandı.",
+                color="orange",
+                extra={"step": "ai-patch", "file": str(file_path), "result": "skipped"},
+            )
+        elif ai_enabled and not outputs:
+            log(
+                "AI patch atlandı çünkü klasik onarım çıktı üretmedi.",
+                color="orange",
+                extra={"step": "ai-patch", "file": str(file_path), "result": "skipped"},
             )
 
         best = pick_best_output(outputs, strategy_mode=args.strategy_mode.upper()) if outputs else None
         if best:
             success_count += 1
-            _cli_log(f"[OK] En iyi çıktı: {best}", color="green")
+            log(
+                f"[OK] En iyi çıktı: {best}",
+                color="green",
+                extra={
+                    "step": "file-end",
+                    "file": str(file_path),
+                    "result": "success",
+                    "duration_ms": int((time.perf_counter() - file_started) * 1000),
+                },
+            )
         else:
-            _cli_log("[FAIL] Başarılı çıktı üretilemedi.", color="red")
+            log(
+                "[FAIL] Başarılı çıktı üretilemedi.",
+                color="red",
+                extra={
+                    "step": "file-end",
+                    "file": str(file_path),
+                    "result": "failed",
+                    "duration_ms": int((time.perf_counter() - file_started) * 1000),
+                },
+            )
 
-    _cli_log(f"\nTamamlandı. Başarılı: {success_count} / {len(files)}")
+    total_duration_ms = int((time.perf_counter() - process_started) * 1000)
+    log(
+        f"\nTamamlandı. Başarılı: {success_count} / {len(files)}",
+        extra={"step": "process-end", "result": "finished", "duration_ms": total_duration_ms},
+    )
     return 0 if success_count else 2
-
 
 # -------------------------------------------------------
 # Argüman ayrıştırıcı
@@ -382,10 +446,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     try:
         return run_cli(args)
     except Exception as exc:
+        logger = create_logger(operation_id="CLI-ERROR", step="cli-error")
+        logger.exception(
+            "CLI sırasında beklenmeyen hata oluştu.",
+            extra={"step": "cli-error", "result": "failed"},
+        )
         log_path = _write_cli_error_log(exc)
-        _cli_log(f"[HATA] {exc.__class__.__name__}: {exc}", color="red")
-        _cli_log(f"Detaylı hata kaydı: {log_path}", color="orange")
-        return 1   
+        logger.error(
+            f"Detaylı hata kaydı: {log_path}",
+            extra={"step": "cli-error", "result": "failed"},
+        )
+        return 1  
 
 if __name__ == "__main__":
     sys.exit(main())
